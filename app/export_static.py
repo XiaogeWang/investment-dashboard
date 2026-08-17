@@ -6,8 +6,9 @@
 输出到 web/data/，目录结构和文件名固定，前端按约定路径直接 fetch：
     data/meta.json
     data/summary.json
-    data/klines/{asset}_{period}_{value}.json
-    data/ratio/{base}_{quote}_{period}.json   （资产两两组合，两个方向都生成）
+    data/klines/{asset}_{period}_{value}.json    value ∈ cap/price/per_m2/per_debt
+    data/ratio/{base}_{quote}_{period}.json      资产两两组合，两个方向都生成
+    data/macro/{series}_{period}.json            宏观单值序列
 
 每天抓取完新数据后跑一遍这个脚本，重新生成的文件连同 web/ 一起提交到仓库，
 GitHub Actions 里就是「抓取 → 导出 → git commit & push」三步。
@@ -19,15 +20,22 @@ from datetime import date
 from pathlib import Path
 
 from . import db
-from .aggregate import PERIODS, aggregate, period_key
-from .config import ASSETS, WEB_DIR
+from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
+                        derive_ratio_rows, period_key, value_modes)
+from .config import ASSETS, MACRO, WEB_DIR
 
 OUT_DIR = WEB_DIR / "data"
+
+SPARK_POINTS = 60  # 指标卡 sparkline 取最近多少个月
 
 
 def _write(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+
+def _macro_asof(conn) -> dict[str, AsOf]:
+    return {k: AsOf([(r["date"], r["value"]) for r in db.fetch_macro(conn, k)]) for k in MACRO}
 
 
 def export_meta(conn) -> None:
@@ -39,10 +47,23 @@ def export_meta(conn) -> None:
             (asset,),
         ).fetchone()
         out[asset] = {**info, "first_date": row["first"], "last_date": row["last"], "days": row["n"]}
+
+    macro_meta = {}
+    for key, info in MACRO.items():
+        row = conn.execute(
+            "SELECT MIN(date) AS first, MAX(date) AS last, COUNT(*) AS n "
+            "FROM macro_series WHERE series = ?",
+            (key,),
+        ).fetchone()
+        macro_meta[key] = {**info, "first_date": row["first"],
+                           "last_date": row["last"], "points": row["n"]}
+
     last_run = conn.execute("SELECT run_at, status FROM ingest_log ORDER BY id DESC LIMIT 1").fetchone()
     _write(OUT_DIR / "meta.json", {
         "assets": out,
+        "macro": macro_meta,
         "periods": list(PERIODS),
+        "value_modes": value_modes(),
         "last_ingest": dict(last_run) if last_run else None,
     })
 
@@ -73,6 +94,49 @@ def export_summary(conn) -> None:
         }
     if "BTC" in out and "GOLD" in out:
         out["ratio"] = out["BTC"]["market_cap"] / out["GOLD"]["market_cap"]
+
+    # 宏观指标卡：最新值 + 同比 + 用于 sparkline 的月度序列
+    macro_out = {}
+    for key, info in MACRO.items():
+        obs = [(r["date"], r["value"]) for r in db.fetch_macro(conn, key)]
+        if not obs:
+            continue
+        monthly = aggregate_macro(obs, "month")
+        spark = [p["v"] for p in monthly[-SPARK_POINTS:]]
+        latest_date, latest_val = obs[-1]
+        # 同比：拿 12 个月前那条月度观测比
+        yoy = None
+        if len(monthly) > 12:
+            prev = monthly[-13]["v"]
+            if prev:
+                yoy = latest_val / prev - 1
+        macro_out[key] = {
+            "name_cn": info["name_cn"],
+            "short_cn": info["short_cn"],
+            "unit": info["unit"],
+            "color": info["color"],
+            "note": info["note"],
+            "date": latest_date,
+            "value": latest_val,
+            "change_1y": yoy,
+            "spark": spark,
+        }
+    if macro_out:
+        out["macro"] = macro_out
+
+    # 资产市值相对各宏观分母的当前占比，供卡片直接展示
+    asof = _macro_asof(conn)
+    ratios = {}
+    for mode, mkey in denominator_modes().items():
+        for asset in ASSETS:
+            if asset not in out:
+                continue
+            dv = asof[mkey](out[asset]["date"])
+            if dv:
+                ratios[f"{asset}_{mode}"] = out[asset]["market_cap"] / dv
+    if ratios:
+        out["macro_ratios"] = ratios
+
     snap = conn.execute("SELECT * FROM cmc_snapshot ORDER BY date DESC LIMIT 1").fetchone()
     if snap:
         out["cmc_check"] = dict(snap)
@@ -80,13 +144,25 @@ def export_summary(conn) -> None:
 
 
 def export_klines(conn) -> None:
+    asof = _macro_asof(conn)
+    modes = denominator_modes()
     for asset in ASSETS:
         rows = db.fetch_daily(conn, asset)
         for period in PERIODS:
             for value in ("cap", "price"):
-                bars = aggregate(rows, period, value)
                 _write(OUT_DIR / "klines" / f"{asset}_{period}_{value}.json",
-                       {"asset": asset, "period": period, "value": value, "bars": bars})
+                       {"asset": asset, "period": period, "value": value,
+                        "bars": aggregate(rows, period, value)})
+        # 派生比值口径：市值 / 宏观分母
+        for mode, mkey in modes.items():
+            derived = derive_ratio_rows(rows, asof[mkey], mode)
+            for period in PERIODS:
+                _write(OUT_DIR / "klines" / f"{asset}_{period}_{mode}.json", {
+                    "asset": asset, "period": period, "value": mode,
+                    "denominator": mkey,
+                    "denominator_last_date": asof[mkey].last_date,
+                    "bars": aggregate(derived, period, mode) if derived else [],
+                })
 
 
 def export_ratio(conn) -> None:
@@ -108,12 +184,23 @@ def export_ratio(conn) -> None:
             })
 
 
+def export_macro(conn) -> None:
+    for key in MACRO:
+        obs = [(r["date"], r["value"]) for r in db.fetch_macro(conn, key)]
+        for period in PERIODS:
+            _write(OUT_DIR / "macro" / f"{key}_{period}.json", {
+                "series": key, "period": period, "unit": MACRO[key]["unit"],
+                "points": aggregate_macro(obs, period) if obs else [],
+            })
+
+
 def run() -> None:
     with db.connect() as conn:
         export_meta(conn)
         export_summary(conn)
         export_klines(conn)
         export_ratio(conn)
+        export_macro(conn)
 
 
 if __name__ == "__main__":

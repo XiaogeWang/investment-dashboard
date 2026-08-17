@@ -38,7 +38,11 @@
   h1 .sub { color: var(--text-faint); font-weight: 400; margin-left: 10px; font-size: 13px; }
   .stamp { margin-left: auto; color: var(--text-faint); font-size: 12px; }
 
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .section-label {
+    color: var(--text-faint); font-size: 11px; letter-spacing: 1.2px;
+    text-transform: uppercase; margin: 0 0 9px 2px;
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(236px, 1fr)); gap: 14px; margin-bottom: 18px; }
   .card {
     background: linear-gradient(160deg, var(--panel-2), var(--panel));
     border: 1px solid var(--border);
@@ -52,11 +56,17 @@
     background: var(--tone, var(--accent));
   }
   .card .label { color: var(--text-dim); font-size: 12px; letter-spacing: .4px; display: flex; align-items: center; gap: 7px; }
-  .card .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--accent)); }
+  .card .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--accent)); flex: none; }
   .card .value { font-size: 28px; font-weight: 600; margin: 9px 0 4px; letter-spacing: -.5px; }
   .card .meta { color: var(--text-faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
   .chg { font-weight: 600; }
   .chg.up { color: var(--up); } .chg.down { color: var(--down); }
+
+  /* 宏观卡：值小一号，右下角带 sparkline */
+  .card.macro .value { font-size: 23px; }
+  .card.macro .spark { position: absolute; right: 14px; bottom: 12px; opacity: .85; }
+  .card.macro .meta { max-width: 62%; }
+  .card .stale { color: #d8a657; }
 
   .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 
@@ -95,6 +105,13 @@
   .toggle input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
   .toggle.off { opacity: .4; cursor: not-allowed; }
 
+  .picker { display: inline-flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 13px; }
+  .picker select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; cursor: pointer;
+  }
+  .picker select:hover { border-color: #2f3650; }
+
   .divider { width: 1px; height: 22px; background: var(--border); }
 
   .chart-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
@@ -102,16 +119,20 @@
 
   .foot { margin-top: 14px; color: var(--text-faint); font-size: 12px; line-height: 1.7; }
   .foot code { background: var(--panel); padding: 1px 6px; border-radius: 4px; color: var(--text-dim); }
+  .foot b { color: var(--text-dim); font-weight: 600; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>全球资产市值看板<span class="sub">Bitcoin vs Gold · 每日更新</span></h1>
+    <h1>全球资产市值看板<span class="sub">硬资产 vs 法币体系 · 每日更新</span></h1>
     <div class="stamp" id="stamp">加载中…</div>
   </header>
 
   <div class="cards" id="cards"></div>
+
+  <div class="section-label" id="macroLabel" style="display:none">宏观背景 · 美国</div>
+  <div class="cards" id="macroCards"></div>
 
   <div class="toolbar">
     <div class="chips" id="assetChips"></div>
@@ -123,11 +144,11 @@
       <button data-period="quarter">季</button>
       <button data-period="year">年</button>
     </div>
-    <div class="seg" id="valueSeg">
-      <button data-value="cap" class="on">市值</button>
-      <button data-value="price">价格</button>
-    </div>
+    <div class="seg" id="valueSeg"></div>
     <div class="spacer"></div>
+    <span class="picker" title="在主图右轴叠加一条宏观曲线，用于对照资产走势">
+      叠加 <select id="overlaySel"><option value="">无</option></select>
+    </span>
     <label class="toggle" id="normWrap" title="多选时可用：把各资产在共同起点归一到 100，比较相对涨幅">
       <input type="checkbox" id="normalize"> 归一化
     </label>
@@ -141,15 +162,20 @@
 
   <div class="foot" id="foot">
     市值 = 当日价格 × 当日供应量。BTC 供应量按减半规则推算；黄金为地上存量估算值（WGC 口径，2024 年底 216,265 吨）。
-    行情来自 Yahoo Finance。黄金周末休市，故日线上黄金无周末数据。
-    <br>勾选单个资产看 K 线，勾选两个及以上叠加对比；勾满两个时副图显示两者市值比值。
+    行情来自 Yahoo Finance，黄金周末休市故日线上无周末数据。
+    <br><b>相对 M2 / 相对联邦债务</b>：把资产市值除以当日货币供应或国债规模，衡量硬资产相对法币体系的估值水位。
+    M2 为月频且发布滞后约两个月，除法用的是不晚于当日的最后一个已知值。
+    <br>宏观数据来自 FRED（<code>M2SL</code>、<code>DFII10</code>）与美国财政部 <code>debt_to_penny</code>。
   </div>
 </div>
 
 <script>
 const UP = '#26a69a', DOWN = '#ef5350';
-const state = { assets: ['BTC'], period: 'month', value: 'cap', log: true, ma: true, norm: false };
-let META = null;
+const state = {
+  assets: ['BTC'], period: 'month', value: 'cap',
+  log: true, ma: true, norm: false, overlay: '',
+};
+let META = null, MODES = {};
 
 const chartEl = document.getElementById('chart');
 const chart = echarts.init(chartEl, null, { renderer: 'canvas' });
@@ -158,6 +184,9 @@ new ResizeObserver(() => chart.resize()).observe(chartEl);
 
 const colorOf = (a) => META?.assets[a]?.color || '#4c8dff';
 const nameOf = (a) => META?.assets[a]?.name_cn || a;
+const macroOf = (k) => META?.macro?.[k] || {};
+const modeOf = () => MODES[state.value] || { kind: 'usd', label: '' };
+const isRatioMode = () => modeOf().kind === 'ratio';
 
 const fmtUSD = (n) => {
   if (n == null || !isFinite(n)) return '—';
@@ -175,7 +204,21 @@ const fmtAxis = (n) => {
   if (a >= 1e3)  return (n / 1e3).toFixed(0) + 'K';
   return n.toFixed(a < 10 ? 1 : 0);
 };
+// 比值口径的数值是「倍数」（0.0546 = 5.46%），统一按百分比展示。
+// 精度按量级走：黄金占 M2 已经超过 100%，而 BTC 占债务只有 3%，写死小数位会一头太糙一头太啰嗦。
+const fmtRatio = (v) => {
+  if (v == null || !isFinite(v)) return '—';
+  const p = v * 100, a = Math.abs(p);
+  return p.toFixed(a >= 100 ? 1 : a >= 1 ? 2 : 3) + '%';
+};
+const fmtRatioAxis = (v) => {
+  const p = v * 100, a = Math.abs(p);
+  return p.toFixed(a >= 10 ? 0 : a >= 1 ? 1 : 2) + '%';
+};
 const fmtPct = (x) => x == null ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%';
+// 宏观指标单位不统一：M2/债务是美元，利率是百分数
+const fmtMacro = (v, unit) => v == null ? '—'
+  : unit === 'percent' ? v.toFixed(2) + '%' : fmtUSD(v);
 const labelOf = (t, p) => {
   if (p === 'year') return t.slice(0, 4);
   if (p === 'quarter') return t.slice(0, 4) + ' Q' + (Math.floor(+t.slice(5, 7) / 3) + 1);
@@ -183,13 +226,30 @@ const labelOf = (t, p) => {
   return t;
 };
 
+// 主图数值格式：市值/价格用美元，比值口径用百分比
+const fmtMain = (v) => isRatioMode() ? fmtRatio(v) : fmtUSD(v);
+const fmtMainAxis = (v) => isRatioMode() ? fmtRatioAxis(v)
+  : (state.value === 'price' ? '$' + fmtAxis(v) : fmtAxis(v));
+
 function ma(bars, n) {
   return bars.map((_, i) => {
     if (i < n - 1) return '-';
     let s = 0;
     for (let k = 0; k < n; k++) s += bars[i - k].c;
-    return +(s / n).toFixed(4);
+    return +(s / n).toFixed(8);
   });
+}
+
+/** 宏观序列按「最近已知值」对齐到图表的时间轴（前向填充）。
+ *  宏观频率低于行情（M2 月频、债务仅工作日），直接按 key 精确匹配会得到一条全是断点的线。 */
+function asofAlign(points, keys) {
+  const out = [];
+  let i = 0, last = null;
+  for (const k of keys) {
+    while (i < points.length && points[i].t <= k) { last = points[i].v; i++; }
+    out.push(last);
+  }
+  return out;
 }
 
 // 静态部署：所有数据都是预生成的 JSON 文件，路径固定，见 app/export_static.py。
@@ -198,6 +258,7 @@ const dataUrl = {
   summary: () => 'data/summary.json',
   klines: (asset, period, value) => `data/klines/${asset}_${period}_${value}.json`,
   ratio: (base, quote, period) => `data/ratio/${base}_${quote}_${period}.json`,
+  macro: (series, period) => `data/macro/${series}_${period}.json`,
 };
 
 async function get(url) {
@@ -208,19 +269,37 @@ async function get(url) {
 
 /* ---------------- 顶部卡片 ---------------- */
 
+function sparkSvg(values, color) {
+  if (!values || values.length < 2) return '';
+  const w = 74, h = 26, min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const pts = values.map((v, i) =>
+    `${(i / (values.length - 1) * w).toFixed(1)},${(h - (v - min) / span * h).toFixed(1)}`).join(' ');
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6"
+      stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/></svg>`;
+}
+
 async function renderCards() {
   const s = await get(dataUrl.summary());
+
   let html = '';
   for (const a of Object.keys(META.assets)) {
     const v = s[a];
     if (!v) continue;
     const c30 = v.change_30d ?? 0, c1y = v.change_1y ?? 0;
+    // 该资产相对各宏观分母的占比，直接在卡片上列出
+    const rel = Object.entries(MODES)
+      .filter(([, m]) => m.kind === 'ratio' && s.macro_ratios?.[`${a}_${m.key}`] != null)
+      .map(([, m]) => `<span>占${macroOf(m.denominator).short_cn} <b class="num">${fmtRatio(s.macro_ratios[`${a}_${m.key}`])}</b></span>`)
+      .join('');
     html += `<div class="card" style="--tone:${colorOf(a)}">
       <div class="label"><span class="dot"></span>${nameOf(a)}市值</div>
       <div class="value num">${fmtUSD(v.market_cap)}</div>
       <div class="meta num">
         <span>近30日 <b class="chg ${c30 >= 0 ? 'up' : 'down'}">${fmtPct(v.change_30d)}</b></span>
         <span>近1年 <b class="chg ${c1y >= 0 ? 'up' : 'down'}">${fmtPct(v.change_1y)}</b></span>
+        ${rel}
       </div>
     </div>`;
   }
@@ -234,11 +313,32 @@ async function renderCards() {
     </div>`;
   }
   document.getElementById('cards').innerHTML = html;
-  const anyDate = Object.values(s).find(v => v && v.date)?.date;
-  document.getElementById('stamp').textContent = '数据截至 ' + (anyDate ?? '—');
+
+  // 宏观指标卡
+  let mhtml = '';
+  for (const [key, m] of Object.entries(s.macro || {})) {
+    const yoy = m.change_1y;
+    // 宏观数据有发布滞后，标出观测日期，滞后超过 40 天的额外提示
+    const lagDays = Math.round((Date.now() - Date.parse(m.date + 'T00:00:00Z')) / 86400000);
+    const dateCls = lagDays > 40 ? 'stale' : '';
+    mhtml += `<div class="card macro" style="--tone:${m.color}">
+      <div class="label"><span class="dot"></span>${m.name_cn}</div>
+      <div class="value num">${fmtMacro(m.value, m.unit)}</div>
+      <div class="meta num">
+        ${yoy != null ? `<span>同比 <b class="chg ${yoy >= 0 ? 'up' : 'down'}">${fmtPct(yoy)}</b></span>` : ''}
+        <span class="${dateCls}" title="${m.note}">截至 ${m.date}</span>
+      </div>
+      ${sparkSvg(m.spark, m.color)}
+    </div>`;
+  }
+  document.getElementById('macroCards').innerHTML = mhtml;
+  document.getElementById('macroLabel').style.display = mhtml ? '' : 'none';
+
+  const assetDate = Object.keys(META.assets).map(a => s[a]?.date).filter(Boolean).sort().pop();
+  document.getElementById('stamp').textContent = '行情截至 ' + (assetDate ?? '—');
 }
 
-/* ---------------- 资产勾选 ---------------- */
+/* ---------------- 工具栏 ---------------- */
 
 function renderChips() {
   const box = document.getElementById('assetChips');
@@ -251,6 +351,19 @@ function renderChips() {
       <span class="box"></span>${nameOf(a)}
     </label>`;
   }).join('');
+}
+
+function renderValueSeg() {
+  document.getElementById('valueSeg').innerHTML = (META.value_modes || []).map(m =>
+    `<button data-value="${m.key}" class="${m.key === state.value ? 'on' : ''}">${m.label}</button>`
+  ).join('');
+}
+
+function renderOverlaySel() {
+  const sel = document.getElementById('overlaySel');
+  sel.innerHTML = '<option value="">无</option>' + Object.entries(META.macro || {}).map(
+    ([k, m]) => `<option value="${k}">${m.short_cn}</option>`).join('');
+  sel.value = state.overlay;
 }
 
 document.getElementById('assetChips').addEventListener('change', (e) => {
@@ -273,13 +386,37 @@ function syncToggles() {
   if (!multi && state.norm) { state.norm = false; document.getElementById('normalize').checked = false; }
 }
 
+/* ---------------- 宏观叠加线 ---------------- */
+
+/** 把宏观叠加线接到已有的 option 上：主图右侧新加一个 Y 轴，不干扰原有轴的索引。 */
+function attachOverlay(option, macroData, keys) {
+  if (!macroData || !macroData.points.length) return;
+  const m = macroOf(macroData.series);
+  const yIdx = option.yAxis.length;
+  option.grid[0].right = 74;
+  if (option.grid[1]) option.grid[1].right = 74;
+  option.yAxis.push({
+    gridIndex: 0, position: 'right', scale: true,
+    name: m.short_cn, nameTextStyle: { color: m.color, fontSize: 11, align: 'right' },
+    axisLabel: { color: m.color, fontSize: 11,
+      formatter: (v) => m.unit === 'percent' ? v.toFixed(1) + '%' : fmtAxis(v) },
+    splitLine: { show: false }, axisLine: { show: false },
+  });
+  option.series.push({
+    name: m.name_cn, type: 'line', yAxisIndex: yIdx, xAxisIndex: 0,
+    data: asofAlign(macroData.points, keys),
+    smooth: true, showSymbol: false, connectNulls: true, z: 1,
+    lineStyle: { width: 1.6, color: m.color, type: 'dashed', opacity: .95 },
+  });
+}
+
 /* ---------------- 单资产：K 线 ---------------- */
 
-function optionCandle(data, asset) {
+function optionCandle(data, asset, macroData) {
   const bars = data.bars;
-  const isCap = state.value === 'cap';
   const tone = colorOf(asset);
-  const unit = isCap ? '市值' : '价格';
+  const unit = isRatioMode() ? modeOf().label : (state.value === 'cap' ? '市值' : '价格');
+  const keys = bars.map(b => b.t);
   const x = bars.map(b => labelOf(b.t, state.period));
   const ohlc = bars.map(b => [b.o, b.c, b.l, b.h]);
   const vol = bars.map((b, i) => [i, b.v, b.c >= b.o ? 1 : -1]);
@@ -303,7 +440,7 @@ function optionCandle(data, asset) {
     itemStyle: { color: (p) => p.data[2] > 0 ? 'rgba(38,166,154,.45)' : 'rgba(239,83,80,.45)' },
   });
 
-  return {
+  const option = {
     animation: false,
     backgroundColor: 'transparent',
     textStyle: { color: '#d6dae5', fontFamily: 'inherit' },
@@ -313,8 +450,8 @@ function optionCandle(data, asset) {
       data: series.filter(s => s.type !== 'bar').map(s => s.name),
     },
     grid: [
-      { left: 74, right: 24, top: 46, height: 400 },
-      { left: 74, right: 24, top: 476, height: 78 },
+      { left: 78, right: 24, top: 46, height: 400 },
+      { left: 78, right: 24, top: 476, height: 78 },
     ],
     axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#2b3245' } },
     tooltip: {
@@ -322,10 +459,13 @@ function optionCandle(data, asset) {
       backgroundColor: 'rgba(19,23,34,.96)', borderColor: '#2b3245', borderWidth: 1,
       textStyle: { color: '#d6dae5', fontSize: 12 },
       formatter: (ps) => {
-        const b = bars[ps[0].dataIndex];
+        const i = ps[0].dataIndex, b = bars[i];
+        if (!b) return '';
         const chg = (b.c / b.o - 1);
-        const f = isCap ? fmtUSD : (v) => '$' + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-        return `<div style="font-weight:600;margin-bottom:6px">${labelOf(b.t, state.period)}
+        const f = isRatioMode() ? fmtMain
+          : (state.value === 'cap' ? fmtUSD
+            : (v) => '$' + v.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+        let s = `<div style="font-weight:600;margin-bottom:6px">${labelOf(b.t, state.period)}
           <span style="color:#565e72;font-weight:400;margin-left:6px">${b.start} → ${b.end}</span></div>
           <table style="font-variant-numeric:tabular-nums;border-spacing:0">
           <tr><td style="color:#7d8598;padding-right:14px">开</td><td>${f(b.o)}</td></tr>
@@ -333,8 +473,13 @@ function optionCandle(data, asset) {
           <tr><td style="color:#7d8598">低</td><td>${f(b.l)}</td></tr>
           <tr><td style="color:#7d8598">收</td><td>${f(b.c)}</td></tr>
           <tr><td style="color:#7d8598">涨跌</td><td style="color:${chg >= 0 ? UP : DOWN};font-weight:600">${fmtPct(chg)}</td></tr>
-          <tr><td style="color:#7d8598">供应量</td><td>${b.supply.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>
-          </table>`;
+          <tr><td style="color:#7d8598">供应量</td><td>${b.supply.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>`;
+        const ov = ps.find(p => p.seriesName === macroOf(state.overlay).name_cn);
+        if (ov && ov.value != null) {
+          const m = macroOf(state.overlay);
+          s += `<tr><td style="color:${m.color}">${m.short_cn}</td><td>${fmtMacro(ov.value, m.unit)}</td></tr>`;
+        }
+        return s + '</table>';
       },
     },
     xAxis: [
@@ -346,7 +491,7 @@ function optionCandle(data, asset) {
     ],
     yAxis: [
       { scale: true, type: state.log ? 'log' : 'value', position: 'left',
-        axisLabel: { color: '#7d8598', fontSize: 11, formatter: (v) => isCap ? fmtAxis(v) : '$' + fmtAxis(v) },
+        axisLabel: { color: '#7d8598', fontSize: 11, formatter: fmtMainAxis },
         splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false } },
       { gridIndex: 1, scale: true, axisLabel: { show: false }, splitLine: { show: false },
         axisLine: { show: false }, splitNumber: 2 },
@@ -354,6 +499,8 @@ function optionCandle(data, asset) {
     dataZoom: zoomCfg(startPct, [0, 1]),
     series,
   };
+  attachOverlay(option, macroData, keys);
+  return option;
 }
 
 /* ---------------- 多资产：叠加对比 ---------------- */
@@ -368,9 +515,9 @@ function zoomCfg(startPct, axes) {
   ];
 }
 
-function optionMulti(series_data, ratio) {
+function optionMulti(series_data, ratio, macroData) {
   const assets = state.assets;
-  const isCap = state.value === 'cap';
+  const modeLabel = isRatioMode() ? modeOf().label : (state.value === 'cap' ? '市值' : '价格');
   // 各资产上市时间不同，取时间轴并集，缺失点留 null
   const keys = [...new Set(assets.flatMap(a => series_data[a].bars.map(b => b.t)))].sort();
   const maps = {};
@@ -394,20 +541,21 @@ function optionMulti(series_data, ratio) {
   const rm = hasRatio ? Object.fromEntries(ratio.points.map(p => [p.t, p.ratio * 100])) : {};
   const mainHeight = hasRatio ? 400 : 490;
 
-  const grid = [{ left: 78, right: hasRatio ? 66 : 24, top: 46, height: mainHeight }];
+  const grid = [{ left: 82, right: hasRatio ? 66 : 24, top: 46, height: mainHeight }];
   const xAxis = [{ type: 'category', data: keys.map(t => labelOf(t, state.period)),
     axisLine: { lineStyle: { color: '#2b3245' } },
     axisLabel: { color: '#7d8598', fontSize: 11, hideOverlap: true }, splitLine: { show: false } }];
   const yAxis = [{
     scale: true, type: state.log ? 'log' : 'value',
-    name: base ? `相对 ${labelOf(base.key, state.period)} = 100` : (isCap ? '市值 (USD)' : '价格 (USD)'),
+    name: base ? `相对 ${labelOf(base.key, state.period)} = 100`
+      : (isRatioMode() ? modeOf().label : (state.value === 'cap' ? '市值 (USD)' : '价格 (USD)')),
     nameTextStyle: { color: '#565e72', fontSize: 11, align: 'left' },
-    axisLabel: { color: '#7d8598', fontSize: 11, formatter: base ? ((v) => fmtAxis(v)) : fmtAxis },
+    axisLabel: { color: '#7d8598', fontSize: 11, formatter: base ? fmtAxis : fmtMainAxis },
     splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false },
   }];
 
   if (hasRatio) {
-    grid.push({ left: 78, right: 66, top: 486, height: 68 });
+    grid.push({ left: 82, right: 66, top: 486, height: 68 });
     xAxis.push({ type: 'category', gridIndex: 1, data: keys.map(t => labelOf(t, state.period)),
       axisLine: { lineStyle: { color: '#2b3245' } },
       axisLabel: { show: false }, splitLine: { show: false } });
@@ -419,7 +567,7 @@ function optionMulti(series_data, ratio) {
 
   // 对数轴下面积会一路填到轴底，视觉上没有含义，只在线性轴保留
   const series = assets.map(a => ({
-    name: nameOf(a) + (isCap ? '市值' : '价格'),
+    name: nameOf(a) + modeLabel,
     type: 'line', data: keys.map(t => valAt(a, t)),
     smooth: true, showSymbol: false, connectNulls: true,
     lineStyle: { width: 2.2, color: colorOf(a) },
@@ -436,7 +584,7 @@ function optionMulti(series_data, ratio) {
     });
   }
 
-  return {
+  const option = {
     animation: false, backgroundColor: 'transparent',
     textStyle: { color: '#d6dae5', fontFamily: 'inherit' },
     legend: { top: 6, left: 12, textStyle: { color: '#7d8598', fontSize: 12 },
@@ -454,13 +602,18 @@ function optionMulti(series_data, ratio) {
         for (const a of assets) {
           const raw = maps[a][t];
           if (raw == null) continue;
-          const shown = base ? (raw / base.vals[a] * 100).toFixed(1) : fmtUSD(raw);
-          const extra = base ? `<span style="color:#565e72"> (${fmtUSD(raw)})</span>` : '';
+          const shown = base ? (raw / base.vals[a] * 100).toFixed(1) : fmtMain(raw);
+          const extra = base ? `<span style="color:#565e72"> (${fmtMain(raw)})</span>` : '';
           s += `<tr><td style="color:${colorOf(a)};padding-right:14px">${nameOf(a)}</td>
                 <td>${shown}${extra}</td></tr>`;
         }
         if (rm[t] != null) {
           s += `<tr><td style="color:#4c8dff">${assets[0]}/${assets[1]}</td><td>${rm[t].toFixed(2)}%</td></tr>`;
+        }
+        const ov = ps.find(p => p.seriesName === macroOf(state.overlay).name_cn);
+        if (ov && ov.value != null) {
+          const m = macroOf(state.overlay);
+          s += `<tr><td style="color:${m.color}">${m.short_cn}</td><td>${fmtMacro(ov.value, m.unit)}</td></tr>`;
         }
         return s + '</table>';
       },
@@ -469,6 +622,8 @@ function optionMulti(series_data, ratio) {
     dataZoom: zoomCfg(keys.length > 400 ? 75 : 0, hasRatio ? [0, 1] : [0]),
     series,
   };
+  attachOverlay(option, macroData, keys);
+  return option;
 }
 
 /* ---------------- 渲染调度 ---------------- */
@@ -481,19 +636,22 @@ async function render() {
     color: '#4c8dff', textColor: '#7d8598' });
   try {
     const p = state.period, v = state.value, assets = [...state.assets];
+    const macroReq = state.overlay ? get(dataUrl.macro(state.overlay, p)) : Promise.resolve(null);
     if (assets.length === 1) {
-      const data = await get(dataUrl.klines(assets[0], p, v));
+      const [data, macroData] = await Promise.all([get(dataUrl.klines(assets[0], p, v)), macroReq]);
       if (seq !== renderSeq) return;  // 已被更晚的切换取代
-      chart.setOption(optionCandle(data, assets[0]), true);
+      chart.setOption(optionCandle(data, assets[0], macroData), true);
     } else {
-      const [bars, ratio] = await Promise.all([
+      const [bars, ratio, macroData] = await Promise.all([
         Promise.all(assets.map(a => get(dataUrl.klines(a, p, v)))),
         assets.length === 2
           ? get(dataUrl.ratio(assets[0], assets[1], p))
           : Promise.resolve(null),
+        macroReq,
       ]);
       if (seq !== renderSeq) return;
-      chart.setOption(optionMulti(Object.fromEntries(assets.map((a, i) => [a, bars[i]])), ratio), true);
+      chart.setOption(
+        optionMulti(Object.fromEntries(assets.map((a, i) => [a, bars[i]])), ratio, macroData), true);
     }
   } catch (e) {
     console.error(e);
@@ -516,11 +674,15 @@ bindSeg('valueSeg', 'value');
 document.getElementById('logAxis').addEventListener('change', (e) => { state.log = e.target.checked; render(); });
 document.getElementById('showMA').addEventListener('change', (e) => { state.ma = e.target.checked; render(); });
 document.getElementById('normalize').addEventListener('change', (e) => { state.norm = e.target.checked; render(); });
+document.getElementById('overlaySel').addEventListener('change', (e) => { state.overlay = e.target.value; render(); });
 
 (async function boot() {
   META = await get(dataUrl.meta());
+  MODES = Object.fromEntries((META.value_modes || []).map(m => [m.key, m]));
   state.assets = Object.keys(META.assets).slice(0, 1);
   renderChips();
+  renderValueSeg();
+  renderOverlaySel();
   syncToggles();
   await renderCards();
   render();

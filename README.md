@@ -54,6 +54,29 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 > 但它年增仅约 1.6%，对曲线形状几乎无影响 —— 走势基本由金价主导。
 > 要换口径改 `app/supply.py` 里的 `_GOLD_STOCK_2024_END_TONNES` 和 `_ANNUAL_MINE_OUTPUT_TONNES` 即可。
 
+### 宏观指标
+
+| 指标 | 来源 | 序列 | 频率 | 历史起点 |
+|---|---|---|---|---|
+| M2 货币供应 | FRED | `M2SL` | 月 | 1959-01 |
+| 美国联邦债务 | 美国财政部 FiscalData | `debt_to_penny` | 工作日 | 1993-04 |
+| 10 年期实际利率 | FRED | `DFII10` | 工作日 | 2003-01 |
+
+两个源都**不需要 API Key**：FRED 官方 REST API 要注册申请 key，但它的 CSV 端点
+（`fredgraph.csv?id=XXX`）可以直接下全历史，正好让整个项目保持零密钥、不必往 CI 里塞 secret；
+财政部接口本身就是公开无鉴权的。
+
+三个坑值得记一下：
+
+- **单位不统一**：FRED 的 M2 以「十亿美元」计（`23155.2` = $23.16 万亿），债务是原始美元，
+  利率是百分数。`config.py` 里每个指标带一个 `scale`，入库时统一换算成基准单位。
+- **FRED 的缺失值有两种写法**：文档里说是 `.`，但 `DFII10` 实际用的是**空字符串**
+  （23 年里 253 条，正好对应美国休市日）。解析时两种都要跳过。
+- **财政部接口单页上限 10000 条**：目前全量 8371 条一页装得下，但再过几年就会超。
+  代码里老实翻页，避免将来悄悄被截断只拿到前 10000 条。
+
+宏观数据会被回溯修订，所以每次都全量重抓覆盖，不做增量。
+
 ---
 
 ## 2. 数据存储
@@ -75,6 +98,12 @@ SQLite，库文件 `data/market.db`。选它是因为每天每资产只有 1 行
 
 同时落库价格和市值，是为了让前端能自由切换两种口径，不必反算。
 
+**`macro_series`** —— 宏观指标，主键 `(series, date)`，字段只有 `series` / `date` / `value`
+
+宏观数据没有塞进 `daily_metrics`，因为它和行情根本不是一类东西：没有 OHLC（单值序列，
+画不了蜡烛）、频率不统一（日频和月频混在一起）、且会被回溯修订。硬塞进去只能靠
+`o=h=l=c` 这种糊法，不如单开一张窄表。
+
 **`ingest_log`** —— 每次抓取的成功/失败记录，排查定时任务用
 **`cmc_snapshot`** —— CMC 官方口径快照（没配 Key 则为空表）
 
@@ -83,6 +112,16 @@ SQLite，库文件 `data/market.db`。选它是因为每天每资产只有 1 行
 只存日线，周/月/季/年在查询时聚合（`app/aggregate.py`），遵循 K 线惯例：
 open 取区间首日开盘，close 取区间末日收盘，high/low 取区间极值，volume 求和。
 数据量小，实时聚合毫秒级返回，省掉了预聚合表和它的一致性问题。
+宏观单值序列则按区间末值取。
+
+### 派生比值口径（市值 / 宏观指标）
+
+「相对 M2」「相对联邦债务」这两个口径不落库，查询时算。关键是**分母要按「最近已知值」
+对齐**而不是按日期精确匹配：M2 是月频且发布滞后约两个月，精确匹配的话绝大多数交易日都
+取不到分母。`aggregate.AsOf` 用二分查找取不晚于当日的最后一个观测值。
+
+分母在一天之内是常数，所以当日比值的 OHLC 可以由市值 OHLC 逐列相除得到；跨周期聚合时
+在各日比值上取极值，分母的变动已经体现在每日比值里了。
 
 ---
 
@@ -114,12 +153,17 @@ crontab -e
 
 - **资产**：勾选框多选，选项由 `/api/meta` 动态生成
 - **周期**：日 / 周 / 月 / 季 / 年
-- **口径**：市值 / 价格
+- **口径**：市值 / 价格 / 相对 M2 / 相对联邦债务（按钮也是由 `/api/meta` 的 `value_modes` 生成）
+- **叠加**：主图右轴可叠加一条宏观曲线（M2 / 联邦债务 / 实际利率）作对照
 - **对数坐标**：默认开启。市值跨越 3 个数量级（BTC 从 50 亿到 1.2 万亿），
   线性轴会把早期完全压平，看长周期务必用对数
 - **均线**：MA5 / MA20（按当前周期计算，仅单选时可用）
 - **归一化**：仅多选时可用，见下
 - 支持滚轮缩放、拖拽平移、十字光标 tooltip
+
+顶部指标卡分两组：资产卡给出市值、涨跌、以及占 M2 / 占联邦债务的比例；
+宏观卡给出最新值、同比和 sparkline。宏观数据有发布滞后，卡片上标出观测日期，
+滞后超过 40 天的日期会转成琥珀色提示（M2 通常滞后约两个月）。
 
 图表形态随勾选数量自动切换：
 
@@ -141,16 +185,27 @@ crontab -e
 黄金周末休市而 BTC 全年无休，所以日线下黄金无周末数据；曲线以时间轴并集渲染、缺口连线，
 比值曲线则只取两者都有数据的交易日。
 
+**相对 M2 / 相对联邦债务**是这个看板加宏观数据后真正有意义的部分——它回答的不是
+"BTC 涨了多少"，而是"硬资产相对整个法币体系值多少"。当前黄金市值是 M2 的 137%、
+BTC 是 5.5%；换成联邦债务做分母则是 80% 和 3.2%。
+
+宏观叠加线用**前向填充**对齐到图表时间轴（取不晚于当日的最后一个观测值），
+否则月频的 M2 画在日线图上会是一串孤立的点而不是一条线。
+
 ---
 
 ## 接口
 
+静态部署下这些接口对应 `web/data/` 里的预生成 JSON（见 `app/export_static.py`），
+本地跑 uvicorn 时是动态接口，两者输出逐根一致。
+
 | 接口 | 说明 |
 |---|---|
-| `GET /api/meta` | 资产元信息、数据范围、最近一次抓取状态 |
-| `GET /api/klines?asset=BTC&period=month&value=cap` | K 线数据，`value` 可选 `cap`/`price` |
+| `GET /api/meta` | 资产与宏观元信息、数据范围、可用口径、最近一次抓取状态 |
+| `GET /api/klines?asset=BTC&period=month&value=cap` | K 线数据，`value` 可选 `cap`/`price`/`per_m2`/`per_debt` |
 | `GET /api/ratio?base=BTC&quote=GOLD&period=month` | 任意两资产的市值比值序列 |
-| `GET /api/summary` | 最新市值、1日/30日/1年涨跌、比值 |
+| `GET /api/macro?series=M2&period=month` | 宏观单值序列 |
+| `GET /api/summary` | 最新市值、涨跌、资产间比值、宏观最新值与 sparkline |
 
 ---
 
@@ -172,20 +227,48 @@ crontab -e
 
 ---
 
+## 加新宏观指标
+
+同样前端不用动。在 `app/config.py` 的 `MACRO` 里加一条：
+
+```python
+"CPI": {
+    "name_cn": "CPI 通胀", "short_cn": "CPI",
+    "source": "fred", "series_id": "CPIAUCSL",
+    "scale": 1.0, "unit": "index", "freq": "monthly",
+    "color": "#e5c07b",
+    "denominator": False,   # True 则自动多出一个「相对 CPI」口径
+    "note": "月频，发布滞后约两周",
+}
+```
+
+`source` 目前支持 `fred`（走 CSV 端点）和 `treasury`。设 `denominator: True` 会自动
+生成对应的派生口径按钮、静态 JSON 和卡片上的占比，不需要改任何前端代码。
+
+第二、三层还没做的候选指标：美联储资产负债表 `WALCL`、10 年期盈亏平衡通胀率 `T10YIE`、
+广义美元指数 `DTWEXBGS`、核心 PCE `PCEPILFE`。加之前建议先用 CSV 端点拉一次核对，
+FRED 偶尔会停更或重命名序列。
+
+---
+
 ## 目录结构
 
 ```
 investment-dashboard/
 ├── app/
-│   ├── config.py       资产定义与配置
-│   ├── supply.py       供应量模型（BTC 减半推算 / 黄金存量估算）
-│   ├── db.py           SQLite schema 与读写
-│   ├── ingest.py       抓取入库，CLI 入口
-│   ├── aggregate.py    日线 → 周/月/季/年 聚合
-│   └── main.py         FastAPI 接口
+│   ├── config.py         资产、宏观指标与数据源配置
+│   ├── supply.py         供应量模型（BTC 减半推算 / 黄金存量估算）
+│   ├── macro.py          宏观指标抓取（FRED CSV / 财政部 API）
+│   ├── db.py             SQLite schema 与读写
+│   ├── ingest.py         抓取入库，CLI 入口
+│   ├── aggregate.py      周期聚合、AsOf 前向填充、派生比值口径
+│   ├── export_static.py  导出静态 JSON（GitHub Pages 用）
+│   └── main.py           FastAPI 接口（本地开发用）
 ├── web/
-│   ├── index.html      看板页面
-│   └── vendor/         ECharts
+│   ├── index.html        看板页面
+│   ├── data/             预生成 JSON，由 export_static.py 产出
+│   └── vendor/           ECharts
+├── .github/workflows/update-data.yml   每日抓取 + 部署
 ├── scripts/daily_update.sh
 └── data/market.db
 ```

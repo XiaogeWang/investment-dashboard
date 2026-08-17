@@ -5,8 +5,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
-from .aggregate import PERIODS, aggregate, period_key
-from .config import ASSETS, WEB_DIR
+from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
+                        derive_ratio_rows, period_key, value_modes)
+from .config import ASSETS, MACRO, WEB_DIR
 
 app = FastAPI(title="Investment Dashboard", description="BTC 与黄金市值走势")
 
@@ -25,12 +26,23 @@ def meta():
             ).fetchone()
             out[asset] = {**info, "first_date": row["first"],
                           "last_date": row["last"], "days": row["n"]}
+        macro_meta = {}
+        for key, info in MACRO.items():
+            row = conn.execute(
+                "SELECT MIN(date) AS first, MAX(date) AS last, COUNT(*) AS n "
+                "FROM macro_series WHERE series = ?",
+                (key,),
+            ).fetchone()
+            macro_meta[key] = {**info, "first_date": row["first"],
+                               "last_date": row["last"], "points": row["n"]}
         last_run = conn.execute(
             "SELECT run_at, status FROM ingest_log ORDER BY id DESC LIMIT 1"
         ).fetchone()
     return {
         "assets": out,
+        "macro": macro_meta,
         "periods": list(PERIODS),
+        "value_modes": value_modes(),
         "last_ingest": dict(last_run) if last_run else None,
     }
 
@@ -44,15 +56,23 @@ def klines(
     end: str | None = None,
 ):
     asset = asset.upper()
+    modes = denominator_modes()
     if asset not in ASSETS:
         raise HTTPException(400, f"未知资产: {asset}")
     if period not in PERIODS:
         raise HTTPException(400, f"未知周期: {period}")
-    if value not in ("cap", "price"):
+    if value not in ("cap", "price") and value not in modes:
         raise HTTPException(400, f"未知取值口径: {value}")
 
     with db.connect() as conn:
         rows = db.fetch_daily(conn, asset, start, end)
+        if value in modes:
+            mkey = modes[value]
+            denom = AsOf([(r["date"], r["value"]) for r in db.fetch_macro(conn, mkey)])
+            derived = derive_ratio_rows(rows, denom, value)
+            return {"asset": asset, "period": period, "value": value,
+                    "denominator": mkey, "denominator_last_date": denom.last_date,
+                    "bars": aggregate(derived, period, value) if derived else []}
     return {"asset": asset, "period": period, "value": value,
             "bars": aggregate(rows, period, value)}
 
@@ -87,6 +107,20 @@ def ratio(
     return {"base": base, "quote": quote, "period": period,
             "points": [{"t": k, "ratio": v[1], "date": v[0]}
                        for k, v in sorted(series.items())]}
+
+
+@app.get("/api/macro")
+def macro_series(series: str = Query(...), period: str = Query("day"),
+                 start: str | None = None, end: str | None = None):
+    series = series.upper()
+    if series not in MACRO:
+        raise HTTPException(400, f"未知宏观指标: {series}")
+    if period not in PERIODS:
+        raise HTTPException(400, f"未知周期: {period}")
+    with db.connect() as conn:
+        obs = [(r["date"], r["value"]) for r in db.fetch_macro(conn, series, start, end)]
+    return {"series": series, "period": period, "unit": MACRO[series]["unit"],
+            "points": aggregate_macro(obs, period)}
 
 
 @app.get("/api/summary")

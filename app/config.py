@@ -38,3 +38,54 @@ ASSETS = {
         "color": "#ffd166",
     },
 }
+
+# 宏观指标。和资产不同，这些是单值序列（没有 OHLC），频率也不统一，
+# 单独存在 macro_series 表里，不混进 daily_metrics。
+#
+# scale: 把源数据换算成基准单位。FRED 的 M2 以「十亿美元」计，所以要 ×1e9 变成美元；
+#        利率本身就是百分数，保持原样。
+# denominator: 能否作为「相对 XX」口径的分母。利率是比率，做分母没有意义。
+MACRO = {
+    "M2": {
+        "name_cn": "M2 货币供应",
+        "short_cn": "M2",
+        "source": "fred",
+        "series_id": "M2SL",
+        "scale": 1e9,
+        "unit": "USD",
+        "freq": "monthly",
+        "color": "#4c8dff",
+        "denominator": True,
+        "note": "月频，发布滞后约 2 个月",
+    },
+    "DEBT": {
+        "name_cn": "美国联邦债务",
+        "short_cn": "联邦债务",
+        "source": "treasury",
+        "series_id": "debt_to_penny",
+        "scale": 1.0,
+        "unit": "USD",
+        "freq": "daily",
+        "color": "#c678dd",
+        "denominator": True,
+        "note": "财政部每工作日更新",
+    },
+    "REAL10Y": {
+        "name_cn": "10 年期实际利率",
+        "short_cn": "实际利率",
+        "source": "fred",
+        "series_id": "DFII10",
+        "scale": 1.0,
+        "unit": "percent",
+        "freq": "daily",
+        "color": "#56b6c2",
+        "denominator": False,
+        "note": "10 年期 TIPS 收益率，黄金最强的单一驱动因子",
+    },
+}
+
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+TREASURY_DEBT_URL = (
+    "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
+    "/v2/accounting/od/debt_to_penny"
+)

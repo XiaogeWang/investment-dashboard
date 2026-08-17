@@ -31,6 +31,17 @@ CREATE TABLE IF NOT EXISTS ingest_log (
     message    TEXT
 );
 
+-- 宏观指标：单值时间序列。频率不统一（日/月），按各自的观测日期存原样，
+-- 需要对齐到交易日时由查询侧做前向填充，不在这里补齐。
+CREATE TABLE IF NOT EXISTS macro_series (
+    series     TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    value      REAL NOT NULL,
+    source     TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (series, date)
+);
+
 -- CMC 官方口径快照，用于校验自算供应量的偏差；无 API Key 时该表为空
 CREATE TABLE IF NOT EXISTS cmc_snapshot (
     date                TEXT PRIMARY KEY,
@@ -79,6 +90,32 @@ def upsert_daily(conn, rows: list[dict]) -> int:
         rows,
     )
     return len(rows)
+
+
+def upsert_macro(conn, rows: list[dict]) -> int:
+    conn.executemany(
+        """
+        INSERT INTO macro_series (series, date, value, source, updated_at)
+        VALUES (:series, :date, :value, :source, :updated_at)
+        ON CONFLICT(series, date) DO UPDATE SET
+            value=excluded.value, source=excluded.source, updated_at=excluded.updated_at
+        """,
+        rows,
+    )
+    return len(rows)
+
+
+def fetch_macro(conn, series: str, start: str | None = None, end: str | None = None):
+    sql = "SELECT date, value FROM macro_series WHERE series = ?"
+    params: list = [series]
+    if start:
+        sql += " AND date >= ?"
+        params.append(start)
+    if end:
+        sql += " AND date <= ?"
+        params.append(end)
+    sql += " ORDER BY date"
+    return conn.execute(sql, params).fetchall()
 
 
 def log_ingest(conn, run_at: str, asset: str, status: str, rows: int, message: str = ""):
