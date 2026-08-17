@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全球资产市值看板 · BTC vs 黄金</title>
+<script src="vendor/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #131722;
+    --panel-2: #1a1f2e;
+    --border: #232838;
+    --text: #d6dae5;
+    --text-dim: #7d8598;
+    --text-faint: #565e72;
+    --up: #26a69a;
+    --down: #ef5350;
+    --accent: #4c8dff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+                 "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+  .wrap { max-width: 1600px; margin: 0 auto; padding: 20px 24px 32px; }
+
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
+  h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: .2px; }
+  h1 .sub { color: var(--text-faint); font-weight: 400; margin-left: 10px; font-size: 13px; }
+  .stamp { margin-left: auto; color: var(--text-faint); font-size: 12px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .card {
+    background: linear-gradient(160deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--tone, var(--accent));
+  }
+  .card .label { color: var(--text-dim); font-size: 12px; letter-spacing: .4px; display: flex; align-items: center; gap: 7px; }
+  .card .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--accent)); }
+  .card .value { font-size: 28px; font-weight: 600; margin: 9px 0 4px; letter-spacing: -.5px; }
+  .card .meta { color: var(--text-faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .chg { font-weight: 600; }
+  .chg.up { color: var(--up); } .chg.down { color: var(--down); }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+
+  /* 资产多选：勾选芯片 */
+  .chips { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+    padding: 8px 14px 8px 11px; font-size: 13px; color: var(--text-dim);
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  .chip:hover { color: var(--text); }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip .box {
+    width: 15px; height: 15px; border-radius: 4px; flex: none;
+    border: 1.5px solid var(--text-faint); position: relative; transition: all .15s;
+  }
+  .chip.on { color: var(--text); background: var(--panel-2); border-color: var(--tone); }
+  .chip.on .box { background: var(--tone); border-color: var(--tone); }
+  .chip.on .box::after {
+    content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
+    border: solid #0b0e14; border-width: 0 2px 2px 0; transform: rotate(43deg);
+  }
+  .chip.locked { cursor: not-allowed; opacity: .75; }
+
+  .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button {
+    border: 0; background: transparent; color: var(--text-dim); cursor: pointer;
+    padding: 7px 15px; border-radius: 6px; font-size: 13px; font-family: inherit;
+    transition: background .15s, color .15s;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
+  .toolbar .spacer { flex: 1; }
+  .toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 13px; cursor: pointer; user-select: none; }
+  .toggle input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .toggle.off { opacity: .4; cursor: not-allowed; }
+
+  .divider { width: 1px; height: 22px; background: var(--border); }
+
+  .chart-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
+  #chart { width: 100%; height: 620px; }
+
+  .foot { margin-top: 14px; color: var(--text-faint); font-size: 12px; line-height: 1.7; }
+  .foot code { background: var(--panel); padding: 1px 6px; border-radius: 4px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>全球资产市值看板<span class="sub">Bitcoin vs Gold · 每日更新</span></h1>
+    <div class="stamp" id="stamp">加载中…</div>
+  </header>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="toolbar">
+    <div class="chips" id="assetChips"></div>
+    <div class="divider"></div>
+    <div class="seg" id="periodSeg">
+      <button data-period="day">日</button>
+      <button data-period="week">周</button>
+      <button data-period="month" class="on">月</button>
+      <button data-period="quarter">季</button>
+      <button data-period="year">年</button>
+    </div>
+    <div class="seg" id="valueSeg">
+      <button data-value="cap" class="on">市值</button>
+      <button data-value="price">价格</button>
+    </div>
+    <div class="spacer"></div>
+    <label class="toggle" id="normWrap" title="多选时可用：把各资产在共同起点归一到 100，比较相对涨幅">
+      <input type="checkbox" id="normalize"> 归一化
+    </label>
+    <label class="toggle"><input type="checkbox" id="logAxis" checked> 对数坐标</label>
+    <label class="toggle" id="maWrap"><input type="checkbox" id="showMA" checked> 均线</label>
+  </div>
+
+  <div class="chart-panel">
+    <div id="chart"></div>
+  </div>
+
+  <div class="foot" id="foot">
+    市值 = 当日价格 × 当日供应量。BTC 供应量按减半规则推算；黄金为地上存量估算值（WGC 口径，2024 年底 216,265 吨）。
+    行情来自 Yahoo Finance。黄金周末休市，故日线上黄金无周末数据。
+    <br>勾选单个资产看 K 线，勾选两个及以上叠加对比；勾满两个时副图显示两者市值比值。
+  </div>
+</div>
+
+<script>
+const UP = '#26a69a', DOWN = '#ef5350';
+const state = { assets: ['BTC'], period: 'month', value: 'cap', log: true, ma: true, norm: false };
+let META = null;
+
+const chartEl = document.getElementById('chart');
+const chart = echarts.init(chartEl, null, { renderer: 'canvas' });
+// 容器在首帧可能还没拿到宽度，ECharts 会初始化出 0 宽的 canvas
+new ResizeObserver(() => chart.resize()).observe(chartEl);
+
+const colorOf = (a) => META?.assets[a]?.color || '#4c8dff';
+const nameOf = (a) => META?.assets[a]?.name_cn || a;
+
+const fmtUSD = (n) => {
+  if (n == null || !isFinite(n)) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e12) return '$' + (n / 1e12).toFixed(2) + ' 万亿';
+  if (a >= 1e8)  return '$' + (n / 1e8).toFixed(2) + ' 亿';
+  if (a >= 1e4)  return '$' + (n / 1e4).toFixed(2) + ' 万';
+  return '$' + n.toFixed(2);
+};
+const fmtAxis = (n) => {
+  const a = Math.abs(n);
+  if (a >= 1e12) return (n / 1e12).toFixed(a >= 1e13 ? 0 : 1) + 'T';
+  if (a >= 1e9)  return (n / 1e9).toFixed(a >= 1e10 ? 0 : 1) + 'B';
+  if (a >= 1e6)  return (n / 1e6).toFixed(0) + 'M';
+  if (a >= 1e3)  return (n / 1e3).toFixed(0) + 'K';
+  return n.toFixed(a < 10 ? 1 : 0);
+};
+const fmtPct = (x) => x == null ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%';
+const labelOf = (t, p) => {
+  if (p === 'year') return t.slice(0, 4);
+  if (p === 'quarter') return t.slice(0, 4) + ' Q' + (Math.floor(+t.slice(5, 7) / 3) + 1);
+  if (p === 'month') return t.slice(0, 7);
+  return t;
+};
+
+function ma(bars, n) {
+  return bars.map((_, i) => {
+    if (i < n - 1) return '-';
+    let s = 0;
+    for (let k = 0; k < n; k++) s += bars[i - k].c;
+    return +(s / n).toFixed(4);
+  });
+}
+
+// 静态部署：所有数据都是预生成的 JSON 文件，路径固定，见 app/export_static.py。
+const dataUrl = {
+  meta: () => 'data/meta.json',
+  summary: () => 'data/summary.json',
+  klines: (asset, period, value) => `data/klines/${asset}_${period}_${value}.json`,
+  ratio: (base, quote, period) => `data/ratio/${base}_${quote}_${period}.json`,
+};
+
+async function get(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+/* ---------------- 顶部卡片 ---------------- */
+
+async function renderCards() {
+  const s = await get(dataUrl.summary());
+  let html = '';
+  for (const a of Object.keys(META.assets)) {
+    const v = s[a];
+    if (!v) continue;
+    const c30 = v.change_30d ?? 0, c1y = v.change_1y ?? 0;
+    html += `<div class="card" style="--tone:${colorOf(a)}">
+      <div class="label"><span class="dot"></span>${nameOf(a)}市值</div>
+      <div class="value num">${fmtUSD(v.market_cap)}</div>
+      <div class="meta num">
+        <span>近30日 <b class="chg ${c30 >= 0 ? 'up' : 'down'}">${fmtPct(v.change_30d)}</b></span>
+        <span>近1年 <b class="chg ${c1y >= 0 ? 'up' : 'down'}">${fmtPct(v.change_1y)}</b></span>
+      </div>
+    </div>`;
+  }
+  if (s.ratio != null && s.BTC && s.GOLD) {
+    html += `<div class="card" style="--tone:var(--accent)">
+      <div class="label"><span class="dot"></span>BTC 市值 / 黄金市值</div>
+      <div class="value num">${(s.ratio * 100).toFixed(2)}%</div>
+      <div class="meta num"><span>相当于黄金的 1/${(1 / s.ratio).toFixed(1)}</span>
+      <span>BTC $${Math.round(s.BTC.price).toLocaleString()}</span>
+      <span>金价 $${Math.round(s.GOLD.price).toLocaleString()}/oz</span></div>
+    </div>`;
+  }
+  document.getElementById('cards').innerHTML = html;
+  const anyDate = Object.values(s).find(v => v && v.date)?.date;
+  document.getElementById('stamp').textContent = '数据截至 ' + (anyDate ?? '—');
+}
+
+/* ---------------- 资产勾选 ---------------- */
+
+function renderChips() {
+  const box = document.getElementById('assetChips');
+  box.innerHTML = Object.keys(META.assets).map(a => {
+    const on = state.assets.includes(a);
+    // 只剩最后一个选中项时禁止取消，否则图表无内容可画
+    const locked = on && state.assets.length === 1;
+    return `<label class="chip ${on ? 'on' : ''} ${locked ? 'locked' : ''}" style="--tone:${colorOf(a)}">
+      <input type="checkbox" data-asset="${a}" ${on ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+      <span class="box"></span>${nameOf(a)}
+    </label>`;
+  }).join('');
+}
+
+document.getElementById('assetChips').addEventListener('change', (e) => {
+  const a = e.target.dataset.asset;
+  if (!a) return;
+  state.assets = e.target.checked
+    ? Object.keys(META.assets).filter(k => k === a || state.assets.includes(k))  // 保持配置顺序
+    : state.assets.filter(x => x !== a);
+  renderChips();
+  syncToggles();
+  render();
+});
+
+function syncToggles() {
+  const multi = state.assets.length > 1;
+  document.getElementById('normWrap').classList.toggle('off', !multi);
+  document.getElementById('normalize').disabled = !multi;
+  document.getElementById('maWrap').classList.toggle('off', multi);
+  document.getElementById('showMA').disabled = multi;
+  if (!multi && state.norm) { state.norm = false; document.getElementById('normalize').checked = false; }
+}
+
+/* ---------------- 单资产：K 线 ---------------- */
+
+function optionCandle(data, asset) {
+  const bars = data.bars;
+  const isCap = state.value === 'cap';
+  const tone = colorOf(asset);
+  const unit = isCap ? '市值' : '价格';
+  const x = bars.map(b => labelOf(b.t, state.period));
+  const ohlc = bars.map(b => [b.o, b.c, b.l, b.h]);
+  const vol = bars.map((b, i) => [i, b.v, b.c >= b.o ? 1 : -1]);
+  const startPct = bars.length > 400 ? 75 : 0;
+
+  const series = [{
+    name: `${nameOf(asset)}${unit}`, type: 'candlestick', data: ohlc,
+    itemStyle: { color: UP, color0: DOWN, borderColor: UP, borderColor0: DOWN, borderWidth: 1 },
+    barMaxWidth: 22,
+  }];
+  if (state.ma) {
+    for (const [n, color] of [[5, '#8b93a7'], [20, tone]]) {
+      series.push({
+        name: `MA${n}`, type: 'line', data: ma(bars, n), smooth: true,
+        showSymbol: false, lineStyle: { width: 1.3, color, opacity: .9 }, z: 3,
+      });
+    }
+  }
+  series.push({
+    name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: vol,
+    itemStyle: { color: (p) => p.data[2] > 0 ? 'rgba(38,166,154,.45)' : 'rgba(239,83,80,.45)' },
+  });
+
+  return {
+    animation: false,
+    backgroundColor: 'transparent',
+    textStyle: { color: '#d6dae5', fontFamily: 'inherit' },
+    legend: {
+      top: 6, left: 12, textStyle: { color: '#7d8598', fontSize: 12 },
+      itemWidth: 14, itemHeight: 9, inactiveColor: '#3a4055',
+      data: series.filter(s => s.type !== 'bar').map(s => s.name),
+    },
+    grid: [
+      { left: 74, right: 24, top: 46, height: 400 },
+      { left: 74, right: 24, top: 476, height: 78 },
+    ],
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#2b3245' } },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      backgroundColor: 'rgba(19,23,34,.96)', borderColor: '#2b3245', borderWidth: 1,
+      textStyle: { color: '#d6dae5', fontSize: 12 },
+      formatter: (ps) => {
+        const b = bars[ps[0].dataIndex];
+        const chg = (b.c / b.o - 1);
+        const f = isCap ? fmtUSD : (v) => '$' + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+        return `<div style="font-weight:600;margin-bottom:6px">${labelOf(b.t, state.period)}
+          <span style="color:#565e72;font-weight:400;margin-left:6px">${b.start} → ${b.end}</span></div>
+          <table style="font-variant-numeric:tabular-nums;border-spacing:0">
+          <tr><td style="color:#7d8598;padding-right:14px">开</td><td>${f(b.o)}</td></tr>
+          <tr><td style="color:#7d8598">高</td><td>${f(b.h)}</td></tr>
+          <tr><td style="color:#7d8598">低</td><td>${f(b.l)}</td></tr>
+          <tr><td style="color:#7d8598">收</td><td>${f(b.c)}</td></tr>
+          <tr><td style="color:#7d8598">涨跌</td><td style="color:${chg >= 0 ? UP : DOWN};font-weight:600">${fmtPct(chg)}</td></tr>
+          <tr><td style="color:#7d8598">供应量</td><td>${b.supply.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>
+          </table>`;
+      },
+    },
+    xAxis: [
+      { type: 'category', data: x, boundaryGap: true, axisLine: { lineStyle: { color: '#2b3245' } },
+        axisLabel: { color: '#7d8598', fontSize: 11, hideOverlap: true }, splitLine: { show: false },
+        min: 'dataMin', max: 'dataMax' },
+      { type: 'category', gridIndex: 1, data: x, boundaryGap: true, axisLine: { lineStyle: { color: '#2b3245' } },
+        axisLabel: { show: false }, splitLine: { show: false }, min: 'dataMin', max: 'dataMax' },
+    ],
+    yAxis: [
+      { scale: true, type: state.log ? 'log' : 'value', position: 'left',
+        axisLabel: { color: '#7d8598', fontSize: 11, formatter: (v) => isCap ? fmtAxis(v) : '$' + fmtAxis(v) },
+        splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false } },
+      { gridIndex: 1, scale: true, axisLabel: { show: false }, splitLine: { show: false },
+        axisLine: { show: false }, splitNumber: 2 },
+    ],
+    dataZoom: zoomCfg(startPct, [0, 1]),
+    series,
+  };
+}
+
+/* ---------------- 多资产：叠加对比 ---------------- */
+
+function zoomCfg(startPct, axes) {
+  return [
+    { type: 'inside', xAxisIndex: axes, start: startPct, end: 100 },
+    { type: 'slider', xAxisIndex: axes, start: startPct, end: 100, bottom: 8, height: 20,
+      borderColor: '#2b3245', fillerColor: 'rgba(76,141,255,.12)',
+      handleStyle: { color: '#4c8dff' }, textStyle: { color: '#565e72', fontSize: 10 },
+      dataBackground: { lineStyle: { color: '#2b3245' }, areaStyle: { color: '#1a1f2e' } } },
+  ];
+}
+
+function optionMulti(series_data, ratio) {
+  const assets = state.assets;
+  const isCap = state.value === 'cap';
+  // 各资产上市时间不同，取时间轴并集，缺失点留 null
+  const keys = [...new Set(assets.flatMap(a => series_data[a].bars.map(b => b.t)))].sort();
+  const maps = {};
+  assets.forEach(a => { maps[a] = Object.fromEntries(series_data[a].bars.map(b => [b.t, b.c])); });
+
+  // 归一化：以「所有选中资产都有数据」的第一个时间点为基准，各自 = 100
+  let base = null;
+  if (state.norm) {
+    const idx = keys.findIndex(t => assets.every(a => maps[a][t] != null));
+    if (idx >= 0) {
+      base = { key: keys[idx], vals: Object.fromEntries(assets.map(a => [a, maps[a][keys[idx]]])) };
+    }
+  }
+  const valAt = (a, t) => {
+    const v = maps[a][t];
+    if (v == null) return null;
+    return base ? v / base.vals[a] * 100 : v;
+  };
+
+  const hasRatio = assets.length === 2 && ratio && ratio.points.length > 0;
+  const rm = hasRatio ? Object.fromEntries(ratio.points.map(p => [p.t, p.ratio * 100])) : {};
+  const mainHeight = hasRatio ? 400 : 490;
+
+  const grid = [{ left: 78, right: hasRatio ? 66 : 24, top: 46, height: mainHeight }];
+  const xAxis = [{ type: 'category', data: keys.map(t => labelOf(t, state.period)),
+    axisLine: { lineStyle: { color: '#2b3245' } },
+    axisLabel: { color: '#7d8598', fontSize: 11, hideOverlap: true }, splitLine: { show: false } }];
+  const yAxis = [{
+    scale: true, type: state.log ? 'log' : 'value',
+    name: base ? `相对 ${labelOf(base.key, state.period)} = 100` : (isCap ? '市值 (USD)' : '价格 (USD)'),
+    nameTextStyle: { color: '#565e72', fontSize: 11, align: 'left' },
+    axisLabel: { color: '#7d8598', fontSize: 11, formatter: base ? ((v) => fmtAxis(v)) : fmtAxis },
+    splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false },
+  }];
+
+  if (hasRatio) {
+    grid.push({ left: 78, right: 66, top: 486, height: 68 });
+    xAxis.push({ type: 'category', gridIndex: 1, data: keys.map(t => labelOf(t, state.period)),
+      axisLine: { lineStyle: { color: '#2b3245' } },
+      axisLabel: { show: false }, splitLine: { show: false } });
+    yAxis.push({ gridIndex: 1, scale: true, name: `${assets[0]}/${assets[1]} %`,
+      nameTextStyle: { color: '#565e72', fontSize: 11, align: 'left' },
+      axisLabel: { color: '#7d8598', fontSize: 11, formatter: (v) => v.toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false }, splitNumber: 3 });
+  }
+
+  // 对数轴下面积会一路填到轴底，视觉上没有含义，只在线性轴保留
+  const series = assets.map(a => ({
+    name: nameOf(a) + (isCap ? '市值' : '价格'),
+    type: 'line', data: keys.map(t => valAt(a, t)),
+    smooth: true, showSymbol: false, connectNulls: true,
+    lineStyle: { width: 2.2, color: colorOf(a) },
+    areaStyle: state.log ? null : { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+      { offset: 0, color: colorOf(a) + '33' }, { offset: 1, color: colorOf(a) + '00' }]) },
+  }));
+  if (hasRatio) {
+    series.push({
+      name: `${nameOf(assets[0])}/${nameOf(assets[1])} 占比`, type: 'line',
+      xAxisIndex: 1, yAxisIndex: 1, data: keys.map(t => rm[t] ?? null),
+      smooth: true, showSymbol: false, connectNulls: true,
+      lineStyle: { width: 1.6, color: '#4c8dff' },
+      areaStyle: { color: 'rgba(76,141,255,.16)' },
+    });
+  }
+
+  return {
+    animation: false, backgroundColor: 'transparent',
+    textStyle: { color: '#d6dae5', fontFamily: 'inherit' },
+    legend: { top: 6, left: 12, textStyle: { color: '#7d8598', fontSize: 12 },
+      itemWidth: 14, itemHeight: 9, inactiveColor: '#3a4055' },
+    grid,
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#2b3245' } },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      backgroundColor: 'rgba(19,23,34,.96)', borderColor: '#2b3245', borderWidth: 1,
+      textStyle: { color: '#d6dae5', fontSize: 12 },
+      formatter: (ps) => {
+        const t = keys[ps[0].dataIndex];
+        let s = `<div style="font-weight:600;margin-bottom:6px">${labelOf(t, state.period)}</div>
+          <table style="font-variant-numeric:tabular-nums;border-spacing:0">`;
+        for (const a of assets) {
+          const raw = maps[a][t];
+          if (raw == null) continue;
+          const shown = base ? (raw / base.vals[a] * 100).toFixed(1) : fmtUSD(raw);
+          const extra = base ? `<span style="color:#565e72"> (${fmtUSD(raw)})</span>` : '';
+          s += `<tr><td style="color:${colorOf(a)};padding-right:14px">${nameOf(a)}</td>
+                <td>${shown}${extra}</td></tr>`;
+        }
+        if (rm[t] != null) {
+          s += `<tr><td style="color:#4c8dff">${assets[0]}/${assets[1]}</td><td>${rm[t].toFixed(2)}%</td></tr>`;
+        }
+        return s + '</table>';
+      },
+    },
+    xAxis, yAxis,
+    dataZoom: zoomCfg(keys.length > 400 ? 75 : 0, hasRatio ? [0, 1] : [0]),
+    series,
+  };
+}
+
+/* ---------------- 渲染调度 ---------------- */
+
+let renderSeq = 0;
+
+async function render() {
+  const seq = ++renderSeq;
+  chart.showLoading({ text: '', maskColor: 'rgba(11,14,20,.6)', spinnerRadius: 12,
+    color: '#4c8dff', textColor: '#7d8598' });
+  try {
+    const p = state.period, v = state.value, assets = [...state.assets];
+    if (assets.length === 1) {
+      const data = await get(dataUrl.klines(assets[0], p, v));
+      if (seq !== renderSeq) return;  // 已被更晚的切换取代
+      chart.setOption(optionCandle(data, assets[0]), true);
+    } else {
+      const [bars, ratio] = await Promise.all([
+        Promise.all(assets.map(a => get(dataUrl.klines(a, p, v)))),
+        assets.length === 2
+          ? get(dataUrl.ratio(assets[0], assets[1], p))
+          : Promise.resolve(null),
+      ]);
+      if (seq !== renderSeq) return;
+      chart.setOption(optionMulti(Object.fromEntries(assets.map((a, i) => [a, bars[i]])), ratio), true);
+    }
+  } catch (e) {
+    console.error(e);
+  } finally {
+    if (seq === renderSeq) chart.hideLoading();
+  }
+}
+
+function bindSeg(id, key) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    [...btn.parentElement.children].forEach(b => b.classList.toggle('on', b === btn));
+    state[key] = btn.dataset[key];
+    render();
+  });
+}
+bindSeg('periodSeg', 'period');
+bindSeg('valueSeg', 'value');
+document.getElementById('logAxis').addEventListener('change', (e) => { state.log = e.target.checked; render(); });
+document.getElementById('showMA').addEventListener('change', (e) => { state.ma = e.target.checked; render(); });
+document.getElementById('normalize').addEventListener('change', (e) => { state.norm = e.target.checked; render(); });
+
+(async function boot() {
+  META = await get(dataUrl.meta());
+  state.assets = Object.keys(META.assets).slice(0, 1);
+  renderChips();
+  syncToggles();
+  await renderCards();
+  render();
+})();
+</script>
+</body>
+</html>
