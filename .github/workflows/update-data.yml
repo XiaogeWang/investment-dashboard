@@ -43,8 +43,17 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: 每日市值数据更新 $(date -u +%Y-%m-%d)"
 
       - name: 推送
-        run: git push
-        # 定时触发时上面这步可能因为没有改动而没有提交，push 无内容可推也不会报错
+        run: |
+          # 定时触发时上一步可能没有改动、没有提交，push 无内容可推也不会报错。
+          # 万一和另一次运行撞车导致远端领先（fetch first 被拒），rebase 后重试一次。
+          for i in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "push 失败，尝试 rebase 后重试 ($i/3)"
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort; exit 1; }
+            sleep 3
+          done
+          exit 1
 
       - name: 打包 Pages 产物
         uses: actions/upload-pages-artifact@v3
