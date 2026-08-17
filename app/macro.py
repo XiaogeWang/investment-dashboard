@@ -108,6 +108,24 @@ def fetch_treasury_debt() -> list[tuple[str, float]]:
     return out
 
 
+def fetch_yahoo(ticker: str) -> list[tuple[str, float]]:
+    """股指等只取收盘价的单值序列。指数点位不是市值，所以走宏观序列而不是 ASSETS。"""
+    import yfinance as yf
+
+    df = yf.Ticker(ticker).history(period="max", interval="1d", auto_adjust=False)
+    if df.empty:
+        raise RuntimeError(f"{ticker} 未返回任何数据")
+    out = []
+    for ts, row in df.iterrows():
+        c = float(row["Close"])
+        if c != c or c <= 0:  # NaN 或非正
+            continue
+        out.append((ts.date().isoformat(), c))
+    if not out:
+        raise RuntimeError(f"{ticker} 没有解析出任何收盘价")
+    return out
+
+
 def fetch_series(key: str) -> list[dict]:
     """按配置抓一个指标，换算好单位后返回可直接入库的行。"""
     meta = MACRO[key]
@@ -118,6 +136,9 @@ def fetch_series(key: str) -> list[dict]:
     elif source == "treasury":
         raw = fetch_treasury_debt()
         src = "treasury:debt_to_penny"
+    elif source == "yahoo":
+        raw = fetch_yahoo(meta["series_id"])
+        src = f"yahoo:{meta['series_id']}"
     else:
         raise ValueError(f"未知数据源: {source}")
 

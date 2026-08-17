@@ -22,7 +22,8 @@ from pathlib import Path
 from . import db
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
-from .config import ASSETS, MACRO, WEB_DIR
+from .analysis import build_panel
+from .config import ASSETS, MACRO, MACRO_GROUPS, WEB_DIR
 
 OUT_DIR = WEB_DIR / "data"
 
@@ -62,6 +63,7 @@ def export_meta(conn) -> None:
     _write(OUT_DIR / "meta.json", {
         "assets": out,
         "macro": macro_meta,
+        "macro_groups": MACRO_GROUPS,
         "periods": list(PERIODS),
         "value_modes": value_modes(),
         "last_ingest": dict(last_run) if last_run else None,
@@ -194,6 +196,11 @@ def export_macro(conn) -> None:
             })
 
 
+def export_panel(conn) -> None:
+    """相关性分析用的对齐月度面板。前端在这一份数据上算相关性，见 analysis.py 的说明。"""
+    _write(OUT_DIR / "panel_month.json", build_panel(conn))
+
+
 def run() -> None:
     with db.connect() as conn:
         export_meta(conn)
@@ -201,6 +208,7 @@ def run() -> None:
         export_klines(conn)
         export_ratio(conn)
         export_macro(conn)
+        export_panel(conn)
 
 
 if __name__ == "__main__":

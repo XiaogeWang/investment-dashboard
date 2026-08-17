@@ -7,7 +7,8 @@ from fastapi.staticfiles import StaticFiles
 from . import db
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
-from .config import ASSETS, MACRO, WEB_DIR
+from .analysis import build_panel
+from .config import ASSETS, MACRO, MACRO_GROUPS, WEB_DIR
 
 app = FastAPI(title="Investment Dashboard", description="BTC 与黄金市值走势")
 
@@ -41,6 +42,7 @@ def meta():
     return {
         "assets": out,
         "macro": macro_meta,
+        "macro_groups": MACRO_GROUPS,
         "periods": list(PERIODS),
         "value_modes": value_modes(),
         "last_ingest": dict(last_run) if last_run else None,
@@ -121,6 +123,13 @@ def macro_series(series: str = Query(...), period: str = Query("day"),
         obs = [(r["date"], r["value"]) for r in db.fetch_macro(conn, series, start, end)]
     return {"series": series, "period": period, "unit": MACRO[series]["unit"],
             "points": aggregate_macro(obs, period)}
+
+
+@app.get("/api/panel")
+def panel():
+    """相关性分析用的对齐月度面板。前端在这一份数据上算相关性，见 analysis.py 的说明。"""
+    with db.connect() as conn:
+        return build_panel(conn)
 
 
 @app.get("/api/summary")

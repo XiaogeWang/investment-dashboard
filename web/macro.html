@@ -1,0 +1,790 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>宏观相关性 · 利率 / 债务 / 股指</title>
+<link rel="stylesheet" href="app.css">
+<script src="vendor/echarts.min.js"></script>
+<script src="common.js"></script>
+<style>
+  /* 本页专用：相关性矩阵在窄屏下需要横向滚动 */
+  .scroll-x { overflow-x: auto; }
+  .chart.tall { height: 660px; }
+  .chart.matrix { height: 620px; min-width: 720px; }
+  .pair { display: inline-flex; align-items: center; gap: 8px; }
+  .pair .arrow { color: var(--text-faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>宏观相关性<span class="sub">利率 · 债务 · 股指</span></h1>
+    <nav class="nav">
+      <a href="index.html">资产市值</a>
+      <a href="macro.html">宏观相关性</a>
+    </nav>
+    <div class="stamp" id="stamp">加载中…</div>
+  </header>
+
+  <div class="seg" id="viewSeg" style="margin-bottom:14px">
+    <button data-view="rates" class="on">利率全景</button>
+    <button data-view="debt">债务全景</button>
+    <button data-view="scatter">散点关系</button>
+    <button data-view="rolling">滚动相关性</button>
+    <button data-view="matrix">相关性矩阵</button>
+  </div>
+
+  <!-- 视图：利率全景 -->
+  <section data-panel="rates">
+    <div class="toolbar">
+      <div class="chips" id="rateChips"></div>
+      <div class="spacer"></div>
+      <div class="seg" id="ratePeriodSeg">
+        <button data-period="day">日</button>
+        <button data-period="week">周</button>
+        <button data-period="month" class="on">月</button>
+        <button data-period="quarter">季</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="showInversion" checked> 标注倒挂</label>
+    </div>
+    <div class="chart-panel"><div id="chartRates" class="chart tall"></div></div>
+    <div class="foot">
+      <b>收益率曲线倒挂</b>（10 年期利率低于 2 年期，即期限利差为负）在历史上是衰退的领先信号，
+      图中用红色竖条标出。副图是 10 年 − 2 年利差本身。
+      <br><b>名义 = 实际 + 通胀预期</b>：同时勾选「10年期」「实际利率」「通胀预期」可以看出
+      利率上行到底来自真实资金成本还是通胀预期（这个恒等式在全部 5908 个交易日上精确成立）。
+    </div>
+  </section>
+
+  <!-- 视图：债务全景 -->
+  <section data-panel="debt" hidden>
+    <div class="toolbar">
+      <div class="seg" id="debtPeriodSeg">
+        <button data-period="month" class="on">月</button>
+        <button data-period="quarter">季</button>
+        <button data-period="year">年</button>
+      </div>
+      <div class="spacer"></div>
+      <label class="toggle"><input type="checkbox" id="debtYoY" checked> 显示同比增速</label>
+      <label class="toggle"><input type="checkbox" id="debtLog"> 对数坐标</label>
+    </div>
+    <div class="chart-panel"><div id="chartDebt" class="chart tall"></div></div>
+    <div class="foot">
+      联邦债务总额（Total Public Debt Outstanding）来自美国财政部 <code>debt_to_penny</code>，每工作日更新。
+      副图是同比增速——绝对规模一路向上没什么信息量，增速的拐点才是。
+      <br>想加「债务 / GDP」和「联邦利息支出」这两条线（都已验证可拉取，季频）随时可以扩。
+    </div>
+  </section>
+
+  <!-- 视图：散点关系 -->
+  <section data-panel="scatter" hidden>
+    <div class="warn" id="scatterWarn"></div>
+    <div class="toolbar">
+      <span class="pair">
+        <span class="picker">X <select id="scatterX"></select></span>
+        <span class="arrow">vs</span>
+        <span class="picker">Y <select id="scatterY"></select></span>
+      </span>
+      <div class="divider"></div>
+      <div class="seg" id="scatterTransSeg"></div>
+      <div class="spacer"></div>
+      <label class="toggle"><input type="checkbox" id="scatterFit" checked> 回归线</label>
+    </div>
+    <div class="readout" id="scatterReadout"></div>
+    <div class="chart-panel"><div id="chartScatter" class="chart tall"></div></div>
+    <div class="foot">
+      点按年份着色。<b>不同时代会聚成不同的团</b>——如果一张图上出现两簇走向相反的点云，
+      说明这两个变量的关系发生过体制切换，此时单一的相关系数没有意义，去看「滚动相关性」。
+    </div>
+  </section>
+
+  <!-- 视图：滚动相关性 -->
+  <section data-panel="rolling" hidden>
+    <div class="toolbar">
+      <span class="pair">
+        <span class="picker">A <select id="rollX"></select></span>
+        <span class="arrow">vs</span>
+        <span class="picker">B <select id="rollY"></select></span>
+      </span>
+      <div class="divider"></div>
+      <div class="seg" id="rollTransSeg"></div>
+      <span class="picker">窗口
+        <select id="rollWin">
+          <option value="12">12 个月</option>
+          <option value="24">24 个月</option>
+          <option value="36" selected>36 个月</option>
+          <option value="60">60 个月</option>
+        </select>
+      </span>
+    </div>
+    <div class="readout" id="rollReadout"></div>
+    <div class="chart-panel"><div id="chartRolling" class="chart tall"></div></div>
+    <div class="foot">
+      这是本页最该看的一张图。<b>相关性不是常数</b>：纳斯达克与 10 年期利率的 36 个月滚动相关，
+      2010–2019 年均值约 +0.34（利率涨、股票也涨，增长驱动），2022 年之后翻转到约 −0.44
+      （利率涨、股票跌，贴现率主导）。全时段算一个静态数字会把这两段互相抵消、正好抹掉最关键的信息。
+    </div>
+  </section>
+
+  <!-- 视图：相关性矩阵 -->
+  <section data-panel="matrix" hidden>
+    <div class="toolbar">
+      <div class="seg" id="matrixTransSeg"></div>
+      <div class="spacer"></div>
+      <span class="picker">最少重叠样本
+        <select id="matrixMinN">
+          <option value="24">24 个月</option>
+          <option value="60" selected>60 个月</option>
+          <option value="120">120 个月</option>
+        </select>
+      </span>
+    </div>
+    <div class="chart-panel scroll-x"><div id="chartMatrix" class="chart matrix"></div></div>
+    <div class="foot">
+      两两皮尔逊相关系数，只用两个序列都有数据的月份计算。灰色格子表示重叠样本不足，
+      不是相关性为零 —— 各序列起始年份差得很远（标普 500 从 1927 年、通胀预期从 2003 年）。
+    </div>
+  </section>
+</div>
+
+<script>
+const state = {
+  view: 'rates',
+  rates: ['DGS10', 'DGS2', 'FEDFUNDS'],
+  ratePeriod: 'month',
+  inversion: true,
+  debtPeriod: 'month',
+  debtYoY: true, debtLog: false,
+  scatterX: 'DGS10', scatterY: 'IXIC', scatterTrans: 'yoy', scatterFit: true,
+  rollX: 'DGS10', rollY: 'IXIC', rollTrans: 'mom', rollWin: 36,
+  matrixTrans: 'yoy', matrixMinN: 60,
+};
+
+let META = null, PANEL = null;
+const charts = {};
+
+/* ---------------- 相关性数学 ----------------
+ * 全部在这一份月度面板上算，不预生成：12 个序列有 66 种组合，再乘窗口和变换方式
+ * 会是几百个文件，而这些计算在浏览器里都是毫秒级。
+ */
+
+/** 去趋势。percent 类用差分（2%→4% 是 +2 个百分点，而且期限利差会跨零，
+ *  用百分比变化会爆炸），其余用百分比变化。 */
+function transform(values, mode, diffMode) {
+  if (mode === 'level') return values.slice();
+  const lag = mode === 'yoy' ? 12 : 1;
+  return values.map((v, i) => {
+    const prev = values[i - lag];
+    if (v == null || prev == null) return null;
+    if (diffMode === 'diff') return v - prev;
+    return prev === 0 ? null : v / prev - 1;
+  });
+}
+
+/** 皮尔逊相关。只用两者都非空的样本（各序列起始年份差很远，必须按重叠计算）。 */
+function pearson(xs, ys, from = 0, to = null) {
+  const end = to == null ? xs.length : to;
+  let n = 0, sx = 0, sy = 0;
+  for (let i = from; i < end; i++) {
+    if (xs[i] == null || ys[i] == null || !isFinite(xs[i]) || !isFinite(ys[i])) continue;
+    n++; sx += xs[i]; sy += ys[i];
+  }
+  if (n < 3) return { r: null, n };
+  const mx = sx / n, my = sy / n;
+  let num = 0, dx = 0, dy = 0;
+  for (let i = from; i < end; i++) {
+    if (xs[i] == null || ys[i] == null || !isFinite(xs[i]) || !isFinite(ys[i])) continue;
+    const u = xs[i] - mx, v = ys[i] - my;
+    num += u * v; dx += u * u; dy += v * v;
+  }
+  const den = Math.sqrt(dx * dy);
+  return { r: den > 0 ? num / den : null, n };
+}
+
+function rollingCorr(xs, ys, win) {
+  const out = new Array(xs.length).fill(null);
+  for (let i = win - 1; i < xs.length; i++) {
+    const { r, n } = pearson(xs, ys, i - win + 1, i + 1);
+    // 窗口内重叠样本太少就不出结果，否则会用 3 个点算出 0.99 这种噪音
+    out[i] = n >= Math.max(8, Math.floor(win * 0.6)) ? r : null;
+  }
+  return out;
+}
+
+/** 最小二乘拟合，用于散点图的回归线。 */
+function ols(xs, ys) {
+  let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] == null || ys[i] == null) continue;
+    n++; sx += xs[i]; sy += ys[i]; sxx += xs[i] * xs[i]; sxy += xs[i] * ys[i];
+  }
+  if (n < 3) return null;
+  const den = n * sxx - sx * sx;
+  if (!den) return null;
+  const slope = (n * sxy - sx * sy) / den;
+  return { slope, intercept: (sy - slope * sx) / n, n };
+}
+
+/* ---------------- 面板取数 ---------------- */
+
+const ser = (k) => PANEL.series[k];
+const shortOf = (k) => ser(k)?.short_cn || k;
+const TRANS = [
+  { key: 'yoy', label: '同比变化' },
+  { key: 'mom', label: '月度变化' },
+  { key: 'level', label: '水平值' },
+];
+const transLabel = (m) => TRANS.find(t => t.key === m)?.label || m;
+
+/** 取变换后的序列。变换后的单位跟原单位不同，一并返回怎么格式化。 */
+function seriesFor(key, mode) {
+  const s = ser(key);
+  const values = transform(s.values, mode, s.diff_mode);
+  let fmt;
+  if (mode === 'level') {
+    fmt = (v) => fmtMacro(v, s.unit);
+  } else if (s.diff_mode === 'diff') {
+    fmt = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + ' pp';  // 百分点
+  } else {
+    fmt = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+  }
+  return { ...s, key, values, fmt };
+}
+
+const corrColor = (r) => {
+  if (r == null) return '#2b3245';
+  // 正相关偏青，负相关偏红，绝对值决定饱和度
+  const a = Math.min(1, Math.abs(r));
+  return r >= 0
+    ? `rgba(38,166,154,${(0.12 + a * 0.78).toFixed(3)})`
+    : `rgba(239,83,80,${(0.12 + a * 0.78).toFixed(3)})`;
+};
+
+/* ---------------- 视图：利率全景 ---------------- */
+
+async function renderRates() {
+  const chart = ensureChart('rates');
+  showLoading(chart);
+  const keys = state.rates;
+  const period = state.ratePeriod;
+  const [datas, spread] = await Promise.all([
+    Promise.all(keys.map(k => get(dataUrl.macro(k, period)))),
+    get(dataUrl.macro('SPREAD10Y2Y', period)),
+  ]);
+
+  const allKeys = [...new Set(datas.flatMap(d => d.points.map(p => p.t)))].sort();
+  const x = allKeys.map(t => labelOf(t, period));
+  const maps = datas.map(d => Object.fromEntries(d.points.map(p => [p.t, p.v])));
+  const sm = Object.fromEntries(spread.points.map(p => [p.t, p.v]));
+
+  const series = keys.map((k, i) => ({
+    name: META.macro[k].name_cn, type: 'line',
+    data: allKeys.map(t => maps[i][t] ?? null),
+    smooth: true, showSymbol: false, connectNulls: true,
+    lineStyle: { width: k === 'DGS10' ? 2.4 : 1.7, color: META.macro[k].color },
+  }));
+
+  // 倒挂区间：把连续的「利差 < 0」合成一段一段的竖条
+  const marks = [];
+  if (state.inversion) {
+    let start = null;
+    for (const t of allKeys) {
+      const v = sm[t];
+      const inv = v != null && v < 0;
+      if (inv && start == null) start = t;
+      if (!inv && start != null) { marks.push([start, t]); start = null; }
+    }
+    if (start != null) marks.push([start, allKeys.at(-1)]);
+  }
+
+  series.push({
+    name: '期限利差', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
+    data: allKeys.map(t => sm[t] ?? null),
+    smooth: true, showSymbol: false, connectNulls: true,
+    lineStyle: { width: 1.6, color: META.macro.SPREAD10Y2Y.color },
+    areaStyle: { color: 'rgba(216,166,87,.16)' },
+    markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0 }],
+      lineStyle: { color: '#4a5266', type: 'dashed', width: 1 }, label: { show: false } },
+  });
+  if (marks.length) {
+    series[0].markArea = {
+      silent: true,
+      itemStyle: { color: 'rgba(239,83,80,.10)' },
+      data: marks.map(([a, b]) => [{ xAxis: labelOf(a, period) }, { xAxis: labelOf(b, period) }]),
+    };
+  }
+
+  chart.setOption({
+    ...baseOption(),
+    grid: [{ left: 62, right: 26, top: 46, height: 400 },
+           { left: 62, right: 26, top: 484, height: 90 }],
+    tooltip: {
+      ...tooltipBase,
+      formatter: (ps) => {
+        const t = allKeys[ps[0].dataIndex];
+        let s = `<div style="font-weight:600;margin-bottom:6px">${labelOf(t, period)}</div>
+          <table style="font-variant-numeric:tabular-nums;border-spacing:0">`;
+        for (const p of ps) {
+          if (p.value == null) continue;
+          s += `<tr><td style="color:${p.color};padding-right:14px">${p.seriesName}</td>
+                <td>${p.value.toFixed(2)}%</td></tr>`;
+        }
+        if (sm[t] != null && sm[t] < 0) {
+          s += `<tr><td colspan="2" style="color:${DOWN};padding-top:4px">收益率曲线倒挂</td></tr>`;
+        }
+        return s + '</table>';
+      },
+    },
+    xAxis: [
+      { type: 'category', data: x, axisLine: { lineStyle: { color: AXIS } },
+        axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+      { type: 'category', gridIndex: 1, data: x, axisLine: { lineStyle: { color: AXIS } },
+        axisLabel: { show: false }, splitLine: { show: false } },
+    ],
+    yAxis: [
+      { scale: true, name: '利率 (%)', nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+        axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => v.toFixed(1) + '%' },
+        splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false } },
+      { gridIndex: 1, scale: true, name: '10Y−2Y', nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+        axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => v.toFixed(1) },
+        splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false }, splitNumber: 3 },
+    ],
+    dataZoom: zoomCfg(allKeys.length > 400 ? 60 : 0, [0, 1]),
+    series,
+  }, true);
+  chart.hideLoading();
+}
+
+/* ---------------- 视图：债务全景 ---------------- */
+
+async function renderDebt() {
+  const chart = ensureChart('debt');
+  showLoading(chart);
+  const period = state.debtPeriod;
+  const d = await get(dataUrl.macro('DEBT', period));
+  const pts = d.points;
+  const x = pts.map(p => labelOf(p.t, period));
+  const lvl = pts.map(p => p.v);
+
+  // 同比增速：月频比 12 期、季频比 4 期、年频比 1 期
+  const lag = { month: 12, quarter: 4, year: 1 }[period] || 12;
+  const yoy = lvl.map((v, i) => (i < lag || !lvl[i - lag]) ? null : v / lvl[i - lag] - 1);
+
+  const grid = [{ left: 78, right: 26, top: 46, height: state.debtYoY ? 380 : 480 }];
+  const xAxis = [{ type: 'category', data: x, axisLine: { lineStyle: { color: AXIS } },
+    axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } }];
+  const yAxis = [{
+    scale: true, type: state.debtLog ? 'log' : 'value',
+    name: '债务总额 (USD)', nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+    axisLabel: { color: LABEL, fontSize: 11, formatter: fmtAxis },
+    splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false },
+  }];
+  const series = [{
+    name: '联邦债务总额', type: 'line', data: lvl,
+    smooth: true, showSymbol: false,
+    lineStyle: { width: 2.2, color: META.macro.DEBT.color },
+    areaStyle: state.debtLog ? null : { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+      { offset: 0, color: META.macro.DEBT.color + '33' },
+      { offset: 1, color: META.macro.DEBT.color + '00' }]) },
+  }];
+
+  if (state.debtYoY) {
+    grid.push({ left: 78, right: 26, top: 466, height: 100 });
+    xAxis.push({ type: 'category', gridIndex: 1, data: x, axisLine: { lineStyle: { color: AXIS } },
+      axisLabel: { show: false }, splitLine: { show: false } });
+    yAxis.push({ gridIndex: 1, scale: true, name: '同比',
+      nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+      axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => (v * 100).toFixed(0) + '%' },
+      splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false }, splitNumber: 3 });
+    series.push({
+      name: '债务同比增速', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: yoy,
+      itemStyle: { color: (p) => p.value >= 0 ? 'rgba(38,166,154,.55)' : 'rgba(239,83,80,.55)' },
+    });
+  }
+
+  chart.setOption({
+    ...baseOption(),
+    grid, xAxis, yAxis,
+    tooltip: {
+      ...tooltipBase,
+      formatter: (ps) => {
+        const i = ps[0].dataIndex;
+        let s = `<div style="font-weight:600;margin-bottom:6px">${x[i]}</div>
+          <table style="font-variant-numeric:tabular-nums;border-spacing:0">
+          <tr><td style="color:${LABEL};padding-right:14px">债务总额</td><td>${fmtUSD(lvl[i])}</td></tr>`;
+        if (yoy[i] != null) {
+          s += `<tr><td style="color:${LABEL}">同比</td>
+                <td style="color:${yoy[i] >= 0 ? UP : DOWN};font-weight:600">${fmtPct(yoy[i])}</td></tr>`;
+        }
+        return s + '</table>';
+      },
+    },
+    dataZoom: zoomCfg(pts.length > 400 ? 60 : 0, state.debtYoY ? [0, 1] : [0]),
+    series,
+  }, true);
+  chart.hideLoading();
+}
+
+/* ---------------- 视图：散点关系 ---------------- */
+
+function renderScatter() {
+  const chart = ensureChart('scatter');
+  const X = seriesFor(state.scatterX, state.scatterTrans);
+  const Y = seriesFor(state.scatterY, state.scatterTrans);
+  const dates = PANEL.dates;
+
+  const pts = [];
+  for (let i = 0; i < dates.length; i++) {
+    if (X.values[i] == null || Y.values[i] == null) continue;
+    pts.push([X.values[i], Y.values[i], +dates[i].slice(0, 4), dates[i].slice(0, 7)]);
+  }
+  const { r, n } = pearson(X.values, Y.values);
+  const fit = state.scatterFit ? ols(X.values, Y.values) : null;
+
+  // 提示水平值口径下的伪相关问题
+  const warnEl = document.getElementById('scatterWarn');
+  if (state.scatterTrans === 'level') {
+    warnEl.hidden = false;
+    warnEl.innerHTML = `当前是<b>水平值</b>口径。两个都有长期趋势的序列，相关系数会接近 ±1，
+      但它衡量的只是「都在往一个方向走」，不代表真实关系 ——
+      联邦债务与纳斯达克用水平值算是 <b>+0.93</b>，用同比变化算只有 <b>−0.02</b>。
+      做相关性判断请切回「同比变化」或「月度变化」。`;
+  } else {
+    warnEl.hidden = true;
+  }
+
+  const years = pts.map(p => p[2]);
+  document.getElementById('scatterReadout').innerHTML = `
+    <div class="item"><span class="k">相关系数 r</span>
+      <span class="v" style="color:${r == null ? LABEL : (r >= 0 ? UP : DOWN)}">${r == null ? '—' : r.toFixed(3)}</span></div>
+    <div class="item"><span class="k">R²</span><span class="v sm">${r == null ? '—' : (r * r).toFixed(3)}</span></div>
+    <div class="item"><span class="k">重叠样本</span><span class="v sm">${n} 个月</span></div>
+    <div class="item"><span class="k">口径</span><span class="v sm">${transLabel(state.scatterTrans)}</span></div>
+    <div class="note">${X.name_cn} → ${Y.name_cn}${fit ? `　斜率 ${fit.slope.toPrecision(3)}` : ''}</div>`;
+
+  const series = [{
+    type: 'scatter', symbolSize: 6, data: pts,
+    itemStyle: { opacity: .72 },
+  }];
+  if (fit) {
+    const xs = pts.map(p => p[0]);
+    const lo = Math.min(...xs), hi = Math.max(...xs);
+    series.push({
+      type: 'line', data: [[lo, fit.slope * lo + fit.intercept], [hi, fit.slope * hi + fit.intercept]],
+      showSymbol: false, lineStyle: { color: '#e5e9f0', width: 1.4, type: 'dashed' },
+      tooltip: { show: false }, z: 5,
+    });
+  }
+
+  chart.setOption({
+    ...baseOption(),
+    legend: { show: false },
+    axisPointer: { show: false },
+    grid: { left: 78, right: 70, top: 30, bottom: 62 },
+    visualMap: {
+      min: Math.min(...years), max: Math.max(...years), dimension: 2,
+      calculable: false, right: 8, top: 'center', itemHeight: 300,
+      text: [Math.max(...years) + '', Math.min(...years) + ''],
+      textStyle: { color: LABEL, fontSize: 11 },
+      inRange: { color: ['#3b4a6b', '#4c8dff', '#56b6c2', '#98c379', '#d8a657', '#e05c5c'] },
+    },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(19,23,34,.96)', borderColor: AXIS, borderWidth: 1,
+      textStyle: { color: '#d6dae5', fontSize: 12 },
+      formatter: (p) => Array.isArray(p.value)
+        ? `<div style="font-weight:600;margin-bottom:5px">${p.value[3]}</div>
+           <table style="font-variant-numeric:tabular-nums;border-spacing:0">
+           <tr><td style="color:${LABEL};padding-right:12px">${X.short_cn}</td><td>${X.fmt(p.value[0])}</td></tr>
+           <tr><td style="color:${LABEL}">${Y.short_cn}</td><td>${Y.fmt(p.value[1])}</td></tr></table>` : '',
+    },
+    xAxis: {
+      scale: true, name: `${X.short_cn} · ${transLabel(state.scatterTrans)}`,
+      nameLocation: 'middle', nameGap: 32, nameTextStyle: { color: FAINT, fontSize: 11 },
+      axisLine: { lineStyle: { color: AXIS } },
+      axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => X.fmt(v) },
+      splitLine: { lineStyle: { color: GRID_LINE } },
+    },
+    yAxis: {
+      scale: true, name: `${Y.short_cn} · ${transLabel(state.scatterTrans)}`,
+      nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+      axisLine: { show: false },
+      axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => Y.fmt(v) },
+      splitLine: { lineStyle: { color: GRID_LINE } },
+    },
+    series,
+  }, true);
+}
+
+/* ---------------- 视图：滚动相关性 ---------------- */
+
+function renderRolling() {
+  const chart = ensureChart('rolling');
+  const X = seriesFor(state.rollX, state.rollTrans);
+  const Y = seriesFor(state.rollY, state.rollTrans);
+  const win = +state.rollWin;
+  const roll = rollingCorr(X.values, Y.values, win);
+  const dates = PANEL.dates;
+
+  // 只画有结果的区间，前面一大段空值没必要占横轴
+  const first = roll.findIndex(v => v != null);
+  const from = first < 0 ? 0 : first;
+  const x = dates.slice(from).map(t => t.slice(0, 7));
+  const v = roll.slice(from);
+
+  const full = pearson(X.values, Y.values);
+  const valid = v.filter(a => a != null);
+  const flips = valid.reduce((acc, cur, i) =>
+    i > 0 && Math.sign(cur) !== Math.sign(valid[i - 1]) ? acc + 1 : acc, 0);
+
+  document.getElementById('rollReadout').innerHTML = `
+    <div class="item"><span class="k">全时段 r</span>
+      <span class="v" style="color:${full.r == null ? LABEL : (full.r >= 0 ? UP : DOWN)}">${full.r == null ? '—' : full.r.toFixed(3)}</span></div>
+    <div class="item"><span class="k">滚动区间</span>
+      <span class="v sm">${valid.length ? `${Math.min(...valid).toFixed(2)} ~ ${Math.max(...valid).toFixed(2)}` : '—'}</span></div>
+    <div class="item"><span class="k">正负翻转次数</span><span class="v sm">${flips}</span></div>
+    <div class="item"><span class="k">当前值</span>
+      <span class="v sm">${valid.length ? valid.at(-1).toFixed(3) : '—'}</span></div>
+    <div class="note">${valid.length && Math.min(...valid) < -0.2 && Math.max(...valid) > 0.2
+      ? '滚动相关在正负之间来回穿越，说明这两个变量的关系发生过体制切换，全时段的单一数字会把它们抵消掉。'
+      : ''}</div>`;
+
+  chart.setOption({
+    ...baseOption(),
+    legend: { show: false },
+    grid: { left: 62, right: 26, top: 30, bottom: 62 },
+    tooltip: {
+      ...tooltipBase,
+      formatter: (ps) => {
+        const p = ps.find(a => a.value != null);
+        if (!p) return '';
+        return `<div style="font-weight:600;margin-bottom:5px">${p.axisValue}</div>
+          <div>${win} 个月滚动相关 <b style="color:${p.value >= 0 ? UP : DOWN}">${p.value.toFixed(3)}</b></div>
+          <div style="color:${FAINT};margin-top:3px">${X.short_cn} vs ${Y.short_cn}</div>`;
+      },
+    },
+    xAxis: { type: 'category', data: x, axisLine: { lineStyle: { color: AXIS } },
+      axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+    yAxis: { min: -1, max: 1, name: `${win} 个月滚动相关`,
+      nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+      axisLabel: { color: LABEL, fontSize: 11, formatter: (a) => a.toFixed(1) },
+      splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false } },
+    dataZoom: zoomCfg(0, [0]),
+    series: [{
+      type: 'line', data: v, smooth: true, showSymbol: false, connectNulls: false,
+      lineStyle: { width: 2, color: ACCENT },
+      // 从 0 起填充而不是从轴底，这样正相关区间向上、负相关向下，体制切换一眼能看出来
+      areaStyle: { color: 'rgba(76,141,255,.16)', origin: 0 },
+      markLine: { silent: true, symbol: 'none', data: [{ yAxis: 0 }],
+        lineStyle: { color: '#5a6280', width: 1 }, label: { show: false } },
+    }],
+  }, true);
+}
+
+/* ---------------- 视图：相关性矩阵 ---------------- */
+
+function renderMatrix() {
+  const chart = ensureChart('matrix');
+  const keys = Object.keys(PANEL.series);
+  const minN = +state.matrixMinN;
+  const cols = keys.map(k => seriesFor(k, state.matrixTrans));
+
+  const data = [];
+  for (let i = 0; i < cols.length; i++) {
+    for (let j = 0; j < cols.length; j++) {
+      const { r, n } = pearson(cols[i].values, cols[j].values);
+      const ok = r != null && n >= minN;
+      data.push({
+        value: [j, i, ok ? +r.toFixed(3) : '-'],
+        n,
+        itemStyle: { color: ok ? corrColor(r) : 'rgba(43,50,69,.55)' },
+      });
+    }
+  }
+
+  const labels = cols.map(c => c.short_cn);
+  chart.setOption({
+    ...baseOption(),
+    legend: { show: false },
+    axisPointer: { show: false },
+    grid: { left: 96, right: 26, top: 74, bottom: 26 },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(19,23,34,.96)', borderColor: AXIS, borderWidth: 1,
+      textStyle: { color: '#d6dae5', fontSize: 12 },
+      formatter: (p) => {
+        const [j, i, val] = p.value;
+        return `<div style="font-weight:600;margin-bottom:5px">${labels[i]} vs ${labels[j]}</div>
+          <div>r = <b>${val === '-' ? '样本不足' : val}</b></div>
+          <div style="color:${FAINT};margin-top:3px">重叠 ${p.data.n} 个月 · ${transLabel(state.matrixTrans)}</div>`;
+      },
+    },
+    xAxis: {
+      type: 'category', data: labels, position: 'top', splitArea: { show: false },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: LABEL, fontSize: 11, rotate: 38 },
+    },
+    yAxis: {
+      type: 'category', data: labels, inverse: true, splitArea: { show: false },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: LABEL, fontSize: 11 },
+    },
+    series: [{
+      type: 'heatmap', data,
+      label: { show: true, color: '#e8ebf2', fontSize: 10,
+        formatter: (p) => p.value[2] === '-' ? '' : p.value[2].toFixed(2) },
+      emphasis: { itemStyle: { borderColor: '#e8ebf2', borderWidth: 1 } },
+    }],
+  }, true);
+}
+
+/* ---------------- 控件与调度 ---------------- */
+
+const RENDER = { rates: renderRates, debt: renderDebt, scatter: renderScatter,
+                 rolling: renderRolling, matrix: renderMatrix };
+
+function ensureChart(view) {
+  const id = { rates: 'chartRates', debt: 'chartDebt', scatter: 'chartScatter',
+               rolling: 'chartRolling', matrix: 'chartMatrix' }[view];
+  if (!charts[view]) {
+    const el = document.getElementById(id);
+    charts[view] = echarts.init(el, null, { renderer: 'canvas' });
+    // 面板从 hidden 变可见时容器才有宽度，这时要重新量一次
+    new ResizeObserver(() => charts[view].resize()).observe(el);
+  }
+  return charts[view];
+}
+
+function showView(view) {
+  state.view = view;
+  document.querySelectorAll('#viewSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.view === view));
+  document.querySelectorAll('section[data-panel]').forEach(s =>
+    s.hidden = s.dataset.panel !== view);
+  ensureChart(view);
+  RENDER[view]();
+  charts[view].resize();
+}
+
+function fillSeriesSelect(el, selected, filter = () => true) {
+  const groups = {};
+  for (const [k, s] of Object.entries(PANEL.series)) {
+    if (!filter(k, s)) continue;
+    (groups[s.group] ||= []).push([k, s]);
+  }
+  el.innerHTML = Object.entries(groups).map(([g, items]) =>
+    `<optgroup label="${META.macro_groups?.[g] || g}">` +
+    items.map(([k, s]) => `<option value="${k}">${s.short_cn}</option>`).join('') +
+    '</optgroup>').join('');
+  el.value = selected;
+}
+
+function makeTransSeg(id, stateKey) {
+  const el = document.getElementById(id);
+  el.innerHTML = TRANS.map(t =>
+    `<button data-trans="${t.key}" class="${state[stateKey] === t.key ? 'on' : ''}">${t.label}</button>`).join('');
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    [...el.children].forEach(c => c.classList.toggle('on', c === b));
+    state[stateKey] = b.dataset.trans;
+    RENDER[state.view]();
+  });
+}
+
+/** dataAttr 是按钮上的 data-* 名，stateKey 是要写进 state 的字段名 —— 两者不同名，
+ *  因为「利率全景」和「债务全景」各有一个独立的周期选择。 */
+function bindSeg(id, dataAttr, stateKey, after) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    [...btn.parentElement.children].forEach(b => b.classList.toggle('on', b === btn));
+    state[stateKey] = btn.dataset[dataAttr];
+    after();
+  });
+}
+
+function renderRateChips() {
+  const box = document.getElementById('rateChips');
+  // 利率类 + 利差，按配置顺序
+  const keys = Object.keys(META.macro).filter(k => ['rate', 'spread'].includes(META.macro[k].group));
+  box.innerHTML = keys.map(k => {
+    const on = state.rates.includes(k);
+    const locked = on && state.rates.length === 1;
+    return `<label class="chip sm ${on ? 'on' : ''} ${locked ? 'locked' : ''}" style="--tone:${META.macro[k].color}"
+             title="${META.macro[k].note}">
+      <input type="checkbox" data-rate="${k}" ${on ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+      <span class="box"></span>${META.macro[k].short_cn}
+    </label>`;
+  }).join('');
+}
+
+(async function boot() {
+  markNav();
+  [META, PANEL] = await Promise.all([get(dataUrl.meta()), get(dataUrl.panel())]);
+
+  document.getElementById('stamp').textContent =
+    `面板 ${PANEL.dates[0].slice(0, 7)} ~ ${PANEL.dates.at(-1).slice(0, 7)} · 月频 ${PANEL.dates.length} 期`;
+
+  renderRateChips();
+  document.getElementById('rateChips').addEventListener('change', (e) => {
+    const k = e.target.dataset.rate;
+    if (!k) return;
+    const order = Object.keys(META.macro);
+    state.rates = e.target.checked
+      ? order.filter(x => x === k || state.rates.includes(x))
+      : state.rates.filter(x => x !== k);
+    renderRateChips();
+    renderRates();
+  });
+
+  for (const [el, key] of [['scatterX', 'scatterX'], ['scatterY', 'scatterY']]) {
+    fillSeriesSelect(document.getElementById(el), state[key]);
+    document.getElementById(el).addEventListener('change', (e) => {
+      state[key] = e.target.value; renderScatter();
+    });
+  }
+  for (const [el, key] of [['rollX', 'rollX'], ['rollY', 'rollY']]) {
+    fillSeriesSelect(document.getElementById(el), state[key]);
+    document.getElementById(el).addEventListener('change', (e) => {
+      state[key] = e.target.value; renderRolling();
+    });
+  }
+
+  makeTransSeg('scatterTransSeg', 'scatterTrans');
+  makeTransSeg('rollTransSeg', 'rollTrans');
+  makeTransSeg('matrixTransSeg', 'matrixTrans');
+
+  bindSeg('ratePeriodSeg', 'period', 'ratePeriod', renderRates);
+  bindSeg('debtPeriodSeg', 'period', 'debtPeriod', renderDebt);
+
+  document.getElementById('showInversion').addEventListener('change', (e) => {
+    state.inversion = e.target.checked; renderRates();
+  });
+  document.getElementById('debtYoY').addEventListener('change', (e) => {
+    state.debtYoY = e.target.checked; renderDebt();
+  });
+  document.getElementById('debtLog').addEventListener('change', (e) => {
+    state.debtLog = e.target.checked; renderDebt();
+  });
+  document.getElementById('scatterFit').addEventListener('change', (e) => {
+    state.scatterFit = e.target.checked; renderScatter();
+  });
+  document.getElementById('rollWin').addEventListener('change', (e) => {
+    state.rollWin = e.target.value; renderRolling();
+  });
+  document.getElementById('matrixMinN').addEventListener('change', (e) => {
+    state.matrixMinN = e.target.value; renderMatrix();
+  });
+
+  document.getElementById('viewSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) showView(b.dataset.view);
+  });
+
+  showView('rates');
+})();
+</script>
+</body>
+</html>

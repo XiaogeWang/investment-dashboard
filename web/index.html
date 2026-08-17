@@ -4,128 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>全球资产市值看板 · BTC vs 黄金</title>
+<link rel="stylesheet" href="app.css">
 <script src="vendor/echarts.min.js"></script>
-<style>
-  :root {
-    --bg: #0b0e14;
-    --panel: #131722;
-    --panel-2: #1a1f2e;
-    --border: #232838;
-    --text: #d6dae5;
-    --text-dim: #7d8598;
-    --text-faint: #565e72;
-    --up: #26a69a;
-    --down: #ef5350;
-    --accent: #4c8dff;
-  }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-                 "Helvetica Neue", Arial, sans-serif;
-    font-size: 14px;
-    -webkit-font-smoothing: antialiased;
-  }
-  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
-
-  .wrap { max-width: 1600px; margin: 0 auto; padding: 20px 24px 32px; }
-
-  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
-  h1 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: .2px; }
-  h1 .sub { color: var(--text-faint); font-weight: 400; margin-left: 10px; font-size: 13px; }
-  .stamp { margin-left: auto; color: var(--text-faint); font-size: 12px; }
-
-  .section-label {
-    color: var(--text-faint); font-size: 11px; letter-spacing: 1.2px;
-    text-transform: uppercase; margin: 0 0 9px 2px;
-  }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(236px, 1fr)); gap: 14px; margin-bottom: 18px; }
-  .card {
-    background: linear-gradient(160deg, var(--panel-2), var(--panel));
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px 18px;
-    position: relative;
-    overflow: hidden;
-  }
-  .card::before {
-    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-    background: var(--tone, var(--accent));
-  }
-  .card .label { color: var(--text-dim); font-size: 12px; letter-spacing: .4px; display: flex; align-items: center; gap: 7px; }
-  .card .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tone, var(--accent)); flex: none; }
-  .card .value { font-size: 28px; font-weight: 600; margin: 9px 0 4px; letter-spacing: -.5px; }
-  .card .meta { color: var(--text-faint); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
-  .chg { font-weight: 600; }
-  .chg.up { color: var(--up); } .chg.down { color: var(--down); }
-
-  /* 宏观卡：值小一号，右下角带 sparkline */
-  .card.macro .value { font-size: 23px; }
-  .card.macro .spark { position: absolute; right: 14px; bottom: 12px; opacity: .85; }
-  .card.macro .meta { max-width: 62%; }
-  .card .stale { color: #d8a657; }
-
-  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-
-  /* 资产多选：勾选芯片 */
-  .chips { display: inline-flex; gap: 8px; flex-wrap: wrap; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
-    padding: 8px 14px 8px 11px; font-size: 13px; color: var(--text-dim);
-    transition: border-color .15s, color .15s, background .15s;
-  }
-  .chip:hover { color: var(--text); }
-  .chip input { position: absolute; opacity: 0; pointer-events: none; }
-  .chip .box {
-    width: 15px; height: 15px; border-radius: 4px; flex: none;
-    border: 1.5px solid var(--text-faint); position: relative; transition: all .15s;
-  }
-  .chip.on { color: var(--text); background: var(--panel-2); border-color: var(--tone); }
-  .chip.on .box { background: var(--tone); border-color: var(--tone); }
-  .chip.on .box::after {
-    content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
-    border: solid #0b0e14; border-width: 0 2px 2px 0; transform: rotate(43deg);
-  }
-  .chip.locked { cursor: not-allowed; opacity: .75; }
-
-  .seg { display: inline-flex; background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px; }
-  .seg button {
-    border: 0; background: transparent; color: var(--text-dim); cursor: pointer;
-    padding: 7px 15px; border-radius: 6px; font-size: 13px; font-family: inherit;
-    transition: background .15s, color .15s;
-  }
-  .seg button:hover { color: var(--text); }
-  .seg button.on { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }
-  .toolbar .spacer { flex: 1; }
-  .toggle { display: inline-flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 13px; cursor: pointer; user-select: none; }
-  .toggle input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
-  .toggle.off { opacity: .4; cursor: not-allowed; }
-
-  .picker { display: inline-flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 13px; }
-  .picker select {
-    background: var(--panel); color: var(--text); border: 1px solid var(--border);
-    border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit; cursor: pointer;
-  }
-  .picker select:hover { border-color: #2f3650; }
-
-  .divider { width: 1px; height: 22px; background: var(--border); }
-
-  .chart-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
-  #chart { width: 100%; height: 620px; }
-
-  .foot { margin-top: 14px; color: var(--text-faint); font-size: 12px; line-height: 1.7; }
-  .foot code { background: var(--panel); padding: 1px 6px; border-radius: 4px; color: var(--text-dim); }
-  .foot b { color: var(--text-dim); font-weight: 600; }
-</style>
+<script src="common.js"></script>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>全球资产市值看板<span class="sub">硬资产 vs 法币体系 · 每日更新</span></h1>
+    <h1>全球资产市值看板<span class="sub">硬资产 vs 法币体系</span></h1>
+    <nav class="nav">
+      <a href="index.html">资产市值</a>
+      <a href="macro.html">宏观相关性</a>
+    </nav>
     <div class="stamp" id="stamp">加载中…</div>
   </header>
 
@@ -157,20 +47,19 @@
   </div>
 
   <div class="chart-panel">
-    <div id="chart"></div>
+    <div id="chart" class="chart"></div>
   </div>
 
-  <div class="foot" id="foot">
+  <div class="foot">
     市值 = 当日价格 × 当日供应量。BTC 供应量按减半规则推算；黄金为地上存量估算值（WGC 口径，2024 年底 216,265 吨）。
     行情来自 Yahoo Finance，黄金周末休市故日线上无周末数据。
     <br><b>相对 M2 / 相对联邦债务</b>：把资产市值除以当日货币供应或国债规模，衡量硬资产相对法币体系的估值水位。
     M2 为月频且发布滞后约两个月，除法用的是不晚于当日的最后一个已知值。
-    <br>宏观数据来自 FRED（<code>M2SL</code>、<code>DFII10</code>）与美国财政部 <code>debt_to_penny</code>。
+    <br>宏观数据来自 FRED 与美国财政部 <code>debt_to_penny</code>。想看利率、股指与宏观相关性，见「宏观相关性」页。
   </div>
 </div>
 
 <script>
-const UP = '#26a69a', DOWN = '#ef5350';
 const state = {
   assets: ['BTC'], period: 'month', value: 'cap',
   log: true, ma: true, norm: false, overlay: '',
@@ -182,49 +71,11 @@ const chart = echarts.init(chartEl, null, { renderer: 'canvas' });
 // 容器在首帧可能还没拿到宽度，ECharts 会初始化出 0 宽的 canvas
 new ResizeObserver(() => chart.resize()).observe(chartEl);
 
-const colorOf = (a) => META?.assets[a]?.color || '#4c8dff';
+const colorOf = (a) => META?.assets[a]?.color || ACCENT;
 const nameOf = (a) => META?.assets[a]?.name_cn || a;
 const macroOf = (k) => META?.macro?.[k] || {};
 const modeOf = () => MODES[state.value] || { kind: 'usd', label: '' };
 const isRatioMode = () => modeOf().kind === 'ratio';
-
-const fmtUSD = (n) => {
-  if (n == null || !isFinite(n)) return '—';
-  const a = Math.abs(n);
-  if (a >= 1e12) return '$' + (n / 1e12).toFixed(2) + ' 万亿';
-  if (a >= 1e8)  return '$' + (n / 1e8).toFixed(2) + ' 亿';
-  if (a >= 1e4)  return '$' + (n / 1e4).toFixed(2) + ' 万';
-  return '$' + n.toFixed(2);
-};
-const fmtAxis = (n) => {
-  const a = Math.abs(n);
-  if (a >= 1e12) return (n / 1e12).toFixed(a >= 1e13 ? 0 : 1) + 'T';
-  if (a >= 1e9)  return (n / 1e9).toFixed(a >= 1e10 ? 0 : 1) + 'B';
-  if (a >= 1e6)  return (n / 1e6).toFixed(0) + 'M';
-  if (a >= 1e3)  return (n / 1e3).toFixed(0) + 'K';
-  return n.toFixed(a < 10 ? 1 : 0);
-};
-// 比值口径的数值是「倍数」（0.0546 = 5.46%），统一按百分比展示。
-// 精度按量级走：黄金占 M2 已经超过 100%，而 BTC 占债务只有 3%，写死小数位会一头太糙一头太啰嗦。
-const fmtRatio = (v) => {
-  if (v == null || !isFinite(v)) return '—';
-  const p = v * 100, a = Math.abs(p);
-  return p.toFixed(a >= 100 ? 1 : a >= 1 ? 2 : 3) + '%';
-};
-const fmtRatioAxis = (v) => {
-  const p = v * 100, a = Math.abs(p);
-  return p.toFixed(a >= 10 ? 0 : a >= 1 ? 1 : 2) + '%';
-};
-const fmtPct = (x) => x == null ? '—' : (x >= 0 ? '+' : '') + (x * 100).toFixed(2) + '%';
-// 宏观指标单位不统一：M2/债务是美元，利率是百分数
-const fmtMacro = (v, unit) => v == null ? '—'
-  : unit === 'percent' ? v.toFixed(2) + '%' : fmtUSD(v);
-const labelOf = (t, p) => {
-  if (p === 'year') return t.slice(0, 4);
-  if (p === 'quarter') return t.slice(0, 4) + ' Q' + (Math.floor(+t.slice(5, 7) / 3) + 1);
-  if (p === 'month') return t.slice(0, 7);
-  return t;
-};
 
 // 主图数值格式：市值/价格用美元，比值口径用百分比
 const fmtMain = (v) => isRatioMode() ? fmtRatio(v) : fmtUSD(v);
@@ -252,21 +103,6 @@ function asofAlign(points, keys) {
   return out;
 }
 
-// 静态部署：所有数据都是预生成的 JSON 文件，路径固定，见 app/export_static.py。
-const dataUrl = {
-  meta: () => 'data/meta.json',
-  summary: () => 'data/summary.json',
-  klines: (asset, period, value) => `data/klines/${asset}_${period}_${value}.json`,
-  ratio: (base, quote, period) => `data/ratio/${base}_${quote}_${period}.json`,
-  macro: (series, period) => `data/macro/${series}_${period}.json`,
-};
-
-async function get(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
 /* ---------------- 顶部卡片 ---------------- */
 
 function sparkSvg(values, color) {
@@ -289,9 +125,9 @@ async function renderCards() {
     if (!v) continue;
     const c30 = v.change_30d ?? 0, c1y = v.change_1y ?? 0;
     // 该资产相对各宏观分母的占比，直接在卡片上列出
-    const rel = Object.entries(MODES)
-      .filter(([, m]) => m.kind === 'ratio' && s.macro_ratios?.[`${a}_${m.key}`] != null)
-      .map(([, m]) => `<span>占${macroOf(m.denominator).short_cn} <b class="num">${fmtRatio(s.macro_ratios[`${a}_${m.key}`])}</b></span>`)
+    const rel = Object.values(MODES)
+      .filter(m => m.kind === 'ratio' && s.macro_ratios?.[`${a}_${m.key}`] != null)
+      .map(m => `<span>占${macroOf(m.denominator).short_cn} <b class="num">${fmtRatio(s.macro_ratios[`${a}_${m.key}`])}</b></span>`)
       .join('');
     html += `<div class="card" style="--tone:${colorOf(a)}">
       <div class="label"><span class="dot"></span>${nameOf(a)}市值</div>
@@ -314,9 +150,12 @@ async function renderCards() {
   }
   document.getElementById('cards').innerHTML = html;
 
-  // 宏观指标卡
+  // 宏观指标卡。只挑「货币 / 债务 / 实际利率」这三张，利率期限结构和股指在宏观页看。
+  const CARD_KEYS = ['M2', 'DEBT', 'REAL10Y'];
   let mhtml = '';
-  for (const [key, m] of Object.entries(s.macro || {})) {
+  for (const key of CARD_KEYS) {
+    const m = (s.macro || {})[key];
+    if (!m) continue;
     const yoy = m.change_1y;
     // 宏观数据有发布滞后，标出观测日期，滞后超过 40 天的额外提示
     const lagDays = Math.round((Date.now() - Date.parse(m.date + 'T00:00:00Z')) / 86400000);
@@ -361,8 +200,11 @@ function renderValueSeg() {
 
 function renderOverlaySel() {
   const sel = document.getElementById('overlaySel');
-  sel.innerHTML = '<option value="">无</option>' + Object.entries(META.macro || {}).map(
-    ([k, m]) => `<option value="${k}">${m.short_cn}</option>`).join('');
+  // 只放这三个，利率期限结构那一堆放在宏观页，避免下拉过长
+  const KEYS = ['M2', 'DEBT', 'REAL10Y', 'DGS10', 'IXIC'];
+  sel.innerHTML = '<option value="">无</option>' + KEYS
+    .filter(k => META.macro?.[k])
+    .map(k => `<option value="${k}">${META.macro[k].short_cn}</option>`).join('');
   sel.value = state.overlay;
 }
 
@@ -398,8 +240,7 @@ function attachOverlay(option, macroData, keys) {
   option.yAxis.push({
     gridIndex: 0, position: 'right', scale: true,
     name: m.short_cn, nameTextStyle: { color: m.color, fontSize: 11, align: 'right' },
-    axisLabel: { color: m.color, fontSize: 11,
-      formatter: (v) => m.unit === 'percent' ? v.toFixed(1) + '%' : fmtAxis(v) },
+    axisLabel: { color: m.color, fontSize: 11, formatter: (v) => fmtMacroAxis(v, m.unit) },
     splitLine: { show: false }, axisLine: { show: false },
   });
   option.series.push({
@@ -441,11 +282,9 @@ function optionCandle(data, asset, macroData) {
   });
 
   const option = {
-    animation: false,
-    backgroundColor: 'transparent',
-    textStyle: { color: '#d6dae5', fontFamily: 'inherit' },
+    ...baseOption(),
     legend: {
-      top: 6, left: 12, textStyle: { color: '#7d8598', fontSize: 12 },
+      top: 6, left: 12, textStyle: { color: LABEL, fontSize: 12 },
       itemWidth: 14, itemHeight: 9, inactiveColor: '#3a4055',
       data: series.filter(s => s.type !== 'bar').map(s => s.name),
     },
@@ -453,27 +292,24 @@ function optionCandle(data, asset, macroData) {
       { left: 78, right: 24, top: 46, height: 400 },
       { left: 78, right: 24, top: 476, height: 78 },
     ],
-    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#2b3245' } },
     tooltip: {
-      trigger: 'axis', axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(19,23,34,.96)', borderColor: '#2b3245', borderWidth: 1,
-      textStyle: { color: '#d6dae5', fontSize: 12 },
+      ...tooltipBase,
       formatter: (ps) => {
-        const i = ps[0].dataIndex, b = bars[i];
+        const b = bars[ps[0].dataIndex];
         if (!b) return '';
         const chg = (b.c / b.o - 1);
         const f = isRatioMode() ? fmtMain
           : (state.value === 'cap' ? fmtUSD
             : (v) => '$' + v.toLocaleString(undefined, { maximumFractionDigits: 2 }));
         let s = `<div style="font-weight:600;margin-bottom:6px">${labelOf(b.t, state.period)}
-          <span style="color:#565e72;font-weight:400;margin-left:6px">${b.start} → ${b.end}</span></div>
+          <span style="color:${FAINT};font-weight:400;margin-left:6px">${b.start} → ${b.end}</span></div>
           <table style="font-variant-numeric:tabular-nums;border-spacing:0">
-          <tr><td style="color:#7d8598;padding-right:14px">开</td><td>${f(b.o)}</td></tr>
-          <tr><td style="color:#7d8598">高</td><td>${f(b.h)}</td></tr>
-          <tr><td style="color:#7d8598">低</td><td>${f(b.l)}</td></tr>
-          <tr><td style="color:#7d8598">收</td><td>${f(b.c)}</td></tr>
-          <tr><td style="color:#7d8598">涨跌</td><td style="color:${chg >= 0 ? UP : DOWN};font-weight:600">${fmtPct(chg)}</td></tr>
-          <tr><td style="color:#7d8598">供应量</td><td>${b.supply.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>`;
+          <tr><td style="color:${LABEL};padding-right:14px">开</td><td>${f(b.o)}</td></tr>
+          <tr><td style="color:${LABEL}">高</td><td>${f(b.h)}</td></tr>
+          <tr><td style="color:${LABEL}">低</td><td>${f(b.l)}</td></tr>
+          <tr><td style="color:${LABEL}">收</td><td>${f(b.c)}</td></tr>
+          <tr><td style="color:${LABEL}">涨跌</td><td style="color:${chg >= 0 ? UP : DOWN};font-weight:600">${fmtPct(chg)}</td></tr>
+          <tr><td style="color:${LABEL}">供应量</td><td>${b.supply.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td></tr>`;
         const ov = ps.find(p => p.seriesName === macroOf(state.overlay).name_cn);
         if (ov && ov.value != null) {
           const m = macroOf(state.overlay);
@@ -483,16 +319,16 @@ function optionCandle(data, asset, macroData) {
       },
     },
     xAxis: [
-      { type: 'category', data: x, boundaryGap: true, axisLine: { lineStyle: { color: '#2b3245' } },
-        axisLabel: { color: '#7d8598', fontSize: 11, hideOverlap: true }, splitLine: { show: false },
+      { type: 'category', data: x, boundaryGap: true, axisLine: { lineStyle: { color: AXIS } },
+        axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false },
         min: 'dataMin', max: 'dataMax' },
-      { type: 'category', gridIndex: 1, data: x, boundaryGap: true, axisLine: { lineStyle: { color: '#2b3245' } },
+      { type: 'category', gridIndex: 1, data: x, boundaryGap: true, axisLine: { lineStyle: { color: AXIS } },
         axisLabel: { show: false }, splitLine: { show: false }, min: 'dataMin', max: 'dataMax' },
     ],
     yAxis: [
       { scale: true, type: state.log ? 'log' : 'value', position: 'left',
-        axisLabel: { color: '#7d8598', fontSize: 11, formatter: fmtMainAxis },
-        splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false } },
+        axisLabel: { color: LABEL, fontSize: 11, formatter: fmtMainAxis },
+        splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false } },
       { gridIndex: 1, scale: true, axisLabel: { show: false }, splitLine: { show: false },
         axisLine: { show: false }, splitNumber: 2 },
     ],
@@ -504,16 +340,6 @@ function optionCandle(data, asset, macroData) {
 }
 
 /* ---------------- 多资产：叠加对比 ---------------- */
-
-function zoomCfg(startPct, axes) {
-  return [
-    { type: 'inside', xAxisIndex: axes, start: startPct, end: 100 },
-    { type: 'slider', xAxisIndex: axes, start: startPct, end: 100, bottom: 8, height: 20,
-      borderColor: '#2b3245', fillerColor: 'rgba(76,141,255,.12)',
-      handleStyle: { color: '#4c8dff' }, textStyle: { color: '#565e72', fontSize: 10 },
-      dataBackground: { lineStyle: { color: '#2b3245' }, areaStyle: { color: '#1a1f2e' } } },
-  ];
-}
 
 function optionMulti(series_data, ratio, macroData) {
   const assets = state.assets;
@@ -543,26 +369,26 @@ function optionMulti(series_data, ratio, macroData) {
 
   const grid = [{ left: 82, right: hasRatio ? 66 : 24, top: 46, height: mainHeight }];
   const xAxis = [{ type: 'category', data: keys.map(t => labelOf(t, state.period)),
-    axisLine: { lineStyle: { color: '#2b3245' } },
-    axisLabel: { color: '#7d8598', fontSize: 11, hideOverlap: true }, splitLine: { show: false } }];
+    axisLine: { lineStyle: { color: AXIS } },
+    axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } }];
   const yAxis = [{
     scale: true, type: state.log ? 'log' : 'value',
     name: base ? `相对 ${labelOf(base.key, state.period)} = 100`
       : (isRatioMode() ? modeOf().label : (state.value === 'cap' ? '市值 (USD)' : '价格 (USD)')),
-    nameTextStyle: { color: '#565e72', fontSize: 11, align: 'left' },
-    axisLabel: { color: '#7d8598', fontSize: 11, formatter: base ? fmtAxis : fmtMainAxis },
-    splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false },
+    nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+    axisLabel: { color: LABEL, fontSize: 11, formatter: base ? fmtAxis : fmtMainAxis },
+    splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false },
   }];
 
   if (hasRatio) {
     grid.push({ left: 82, right: 66, top: 486, height: 68 });
     xAxis.push({ type: 'category', gridIndex: 1, data: keys.map(t => labelOf(t, state.period)),
-      axisLine: { lineStyle: { color: '#2b3245' } },
+      axisLine: { lineStyle: { color: AXIS } },
       axisLabel: { show: false }, splitLine: { show: false } });
     yAxis.push({ gridIndex: 1, scale: true, name: `${assets[0]}/${assets[1]} %`,
-      nameTextStyle: { color: '#565e72', fontSize: 11, align: 'left' },
-      axisLabel: { color: '#7d8598', fontSize: 11, formatter: (v) => v.toFixed(1) + '%' },
-      splitLine: { lineStyle: { color: '#1c2131' } }, axisLine: { show: false }, splitNumber: 3 });
+      nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+      axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => v.toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false }, splitNumber: 3 });
   }
 
   // 对数轴下面积会一路填到轴底，视觉上没有含义，只在线性轴保留
@@ -579,22 +405,16 @@ function optionMulti(series_data, ratio, macroData) {
       name: `${nameOf(assets[0])}/${nameOf(assets[1])} 占比`, type: 'line',
       xAxisIndex: 1, yAxisIndex: 1, data: keys.map(t => rm[t] ?? null),
       smooth: true, showSymbol: false, connectNulls: true,
-      lineStyle: { width: 1.6, color: '#4c8dff' },
+      lineStyle: { width: 1.6, color: ACCENT },
       areaStyle: { color: 'rgba(76,141,255,.16)' },
     });
   }
 
   const option = {
-    animation: false, backgroundColor: 'transparent',
-    textStyle: { color: '#d6dae5', fontFamily: 'inherit' },
-    legend: { top: 6, left: 12, textStyle: { color: '#7d8598', fontSize: 12 },
-      itemWidth: 14, itemHeight: 9, inactiveColor: '#3a4055' },
+    ...baseOption(),
     grid,
-    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#2b3245' } },
     tooltip: {
-      trigger: 'axis', axisPointer: { type: 'cross' },
-      backgroundColor: 'rgba(19,23,34,.96)', borderColor: '#2b3245', borderWidth: 1,
-      textStyle: { color: '#d6dae5', fontSize: 12 },
+      ...tooltipBase,
       formatter: (ps) => {
         const t = keys[ps[0].dataIndex];
         let s = `<div style="font-weight:600;margin-bottom:6px">${labelOf(t, state.period)}</div>
@@ -603,12 +423,12 @@ function optionMulti(series_data, ratio, macroData) {
           const raw = maps[a][t];
           if (raw == null) continue;
           const shown = base ? (raw / base.vals[a] * 100).toFixed(1) : fmtMain(raw);
-          const extra = base ? `<span style="color:#565e72"> (${fmtMain(raw)})</span>` : '';
+          const extra = base ? `<span style="color:${FAINT}"> (${fmtMain(raw)})</span>` : '';
           s += `<tr><td style="color:${colorOf(a)};padding-right:14px">${nameOf(a)}</td>
                 <td>${shown}${extra}</td></tr>`;
         }
         if (rm[t] != null) {
-          s += `<tr><td style="color:#4c8dff">${assets[0]}/${assets[1]}</td><td>${rm[t].toFixed(2)}%</td></tr>`;
+          s += `<tr><td style="color:${ACCENT}">${assets[0]}/${assets[1]}</td><td>${rm[t].toFixed(2)}%</td></tr>`;
         }
         const ov = ps.find(p => p.seriesName === macroOf(state.overlay).name_cn);
         if (ov && ov.value != null) {
@@ -632,8 +452,7 @@ let renderSeq = 0;
 
 async function render() {
   const seq = ++renderSeq;
-  chart.showLoading({ text: '', maskColor: 'rgba(11,14,20,.6)', spinnerRadius: 12,
-    color: '#4c8dff', textColor: '#7d8598' });
+  showLoading(chart);
   try {
     const p = state.period, v = state.value, assets = [...state.assets];
     const macroReq = state.overlay ? get(dataUrl.macro(state.overlay, p)) : Promise.resolve(null);
@@ -677,6 +496,7 @@ document.getElementById('normalize').addEventListener('change', (e) => { state.n
 document.getElementById('overlaySel').addEventListener('change', (e) => { state.overlay = e.target.value; render(); });
 
 (async function boot() {
+  markNav();
   META = await get(dataUrl.meta());
   MODES = Object.fromEntries((META.value_modes || []).map(m => [m.key, m]));
   state.assets = Object.keys(META.assets).slice(0, 1);
