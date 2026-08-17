@@ -10,6 +10,7 @@
 import csv
 import io
 import logging
+import random
 import time
 from datetime import datetime, timezone
 
@@ -19,8 +20,13 @@ from .config import FRED_CSV_URL, MACRO, TREASURY_DEBT_URL
 
 log = logging.getLogger("macro")
 
-TIMEOUT = 90
-RETRIES = 3
+# 财政部接口会用「接受连接但不响应」的方式限流密集请求，不返回 429。
+# 观察到的规律：能成功的请求都在 3 秒内返回，被限流的则一直挂到超时。
+# 所以这里用「短超时 + 多次重试」而不是长超时少重试 —— 后者会把每次重试都浪费成一次
+# 完整的超时等待（实测 3 次 90 秒重试全部挂满，任务直接失败）。
+TIMEOUT = 20
+RETRIES = 6
+BACKOFF = 3
 PAGE_SIZE = 10000  # 财政部接口允许的上限
 
 
@@ -29,7 +35,6 @@ def _now() -> str:
 
 
 def _get(url: str, params: dict) -> httpx.Response:
-    """带重试的 GET。两个源偶尔会超时或限流，而这是每天只跑一次的任务，直接重试即可。"""
     last = None
     for attempt in range(1, RETRIES + 1):
         try:
@@ -39,8 +44,10 @@ def _get(url: str, params: dict) -> httpx.Response:
         except Exception as e:
             last = e
             if attempt < RETRIES:
-                log.warning("请求失败 (%s/%s): %s，重试中", attempt, RETRIES, e)
-                time.sleep(2 * attempt)
+                # 递增退避 + 抖动，避免限流窗口对齐后每次重试都撞在同一节奏上
+                delay = BACKOFF * attempt + random.uniform(0, 1.5)
+                log.warning("请求失败 (%s/%s): %s，%.1fs 后重试", attempt, RETRIES, e, delay)
+                time.sleep(delay)
     raise last
 
 
