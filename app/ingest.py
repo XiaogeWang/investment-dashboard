@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import yfinance as yf
 
-from . import beta, db, macro
+from . import beta, db, macro, mnav
 from .config import ASSETS, BETA, CMC_API_KEY, CMC_BASE_URL, MACRO
 from .supply import SUPPLY_FN
 
@@ -126,6 +126,21 @@ def run(full: bool = False) -> int:
             log.error("%s 抓取失败: %s", symbol, e)
             with db.connect() as conn:
                 db.log_ingest(conn, run_at, f"equity:{symbol}", "error", 0, str(e)[:500])
+
+    # MSTR mNAV 走的是 Strategy 官网的非公开文档接口，随时可能变。失败只记日志、不计入 failures：
+    # 不能因为这一个非核心数据源挂了，就让其他所有数据停更。导出时如果库里没有数据，
+    # 会保留上一次提交的 mnav.json（见 export_static.export_mnav）。
+    try:
+        rows = mnav.fetch()
+        with db.connect() as conn:
+            n = db.upsert_mstr_nav(conn, rows)
+            db.log_ingest(conn, run_at, "mnav:MSTR", "ok", n,
+                          f"{rows[0]['date']}..{rows[-1]['date']}")
+        log.info("MSTR mNAV: 写入 %d 行 (%s..%s)", n, rows[0]["date"], rows[-1]["date"])
+    except Exception as e:
+        log.warning("MSTR mNAV 抓取失败，本次沿用上一次的数据: %s", e)
+        with db.connect() as conn:
+            db.log_ingest(conn, run_at, "mnav:MSTR", "error", 0, str(e)[:500])
 
     try:
         snap = fetch_cmc_snapshot()

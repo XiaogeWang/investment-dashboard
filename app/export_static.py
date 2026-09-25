@@ -10,6 +10,7 @@
     data/ratio/{base}_{quote}_{period}.json      资产两两组合，两个方向都生成
     data/macro/{series}_{period}.json            宏观单值序列
     data/beta.json                               加密股相对 BTC 的滚动 Beta
+    data/mnav.json                               Strategy (MSTR) 的 mNAV
 
 每天抓取完新数据后跑一遍这个脚本，重新生成的文件连同 web/ 一起提交到仓库，
 GitHub Actions 里就是「抓取 → 导出 → git commit & push」三步。
@@ -20,7 +21,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from . import beta, db
+from . import beta, db, mnav
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
 from .analysis import build_panel
@@ -207,6 +208,15 @@ def export_beta(conn) -> None:
     _write(OUT_DIR / "beta.json", beta.build(conn))
 
 
+def export_mnav(conn) -> None:
+    """库里没有数据（本次抓取失败，CI 上又是全新的库）时不覆盖，保留上一次提交的文件。"""
+    data = mnav.build(conn)
+    if data is None:
+        print("mstr_nav 表为空，保留现有的 data/mnav.json")
+        return
+    _write(OUT_DIR / "mnav.json", data)
+
+
 def run() -> None:
     with db.connect() as conn:
         export_meta(conn)
@@ -216,6 +226,7 @@ def run() -> None:
         export_macro(conn)
         export_panel(conn)
         export_beta(conn)
+        export_mnav(conn)
 
 
 if __name__ == "__main__":

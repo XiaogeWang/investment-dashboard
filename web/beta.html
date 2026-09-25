@@ -56,9 +56,21 @@
   .tag.note { color: #d8a657; border-color: rgba(216,166,87,.35); }
   .empty-note { color: var(--text-faint); }
 
+  .mnav-block { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--border); }
+  .block-title {
+    font-size: 17px; font-weight: 600; margin: 0 0 14px;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .block-title span { color: var(--text-faint); font-weight: 400; font-size: 13px; }
+  .chart.mnav { height: 440px; }
+  .readout .v.prem { color: var(--up); }
+  .readout .v.disc { color: var(--down); }
+  .readout .d { color: var(--text-faint); font-size: 11px; }
+
   @media (max-width: 640px) {
     .wrap { padding: 16px 16px 28px; }
     .chart.beta { height: 400px; }
+    .chart.mnav { height: 360px; }
     .insight li { flex-direction: column; gap: 4px; }
   }
 </style>
@@ -117,6 +129,38 @@
     所以 30 日只适合看短期拐点，120 日更适合作为主要参考。
     <br>数据解读由规则自动生成，只描述统计特征，不构成投资建议。
   </div>
+
+  <!-- MSTR mNAV -->
+  <section class="mnav-block" id="mnavBlock">
+    <h2 class="block-title">MSTR mNAV<span>股票市值相对所持 BTC 价值的倍数</span></h2>
+    <div class="readout num" id="mnavReadout"></div>
+    <div class="toolbar">
+      <div class="chips" id="mnavChips"></div>
+      <label class="toggle"><input type="checkbox" id="mnavLog"> 对数坐标</label>
+      <div class="spacer"></div>
+      <div class="seg" id="mnavRangeSeg">
+        <button data-range="all">全部</button>
+        <button data-range="36">3 年</button>
+        <button data-range="12">1 年</button>
+        <button data-range="6">6 个月</button>
+      </div>
+    </div>
+    <div class="chart-panel"><div id="chartMnav" class="chart mnav"></div></div>
+    <section class="insight" aria-live="polite">
+      <h2>数据解读<span id="mnavScope"></span></h2>
+      <ul id="mnavInsight"></ul>
+    </section>
+    <div class="foot">
+      <b>市值口径</b> = 普通股市值 / 所持 BTC 价值，2020-08 开始买币起每天都有。
+      <br><b>EV 口径</b>（Strategy 官方）= (市值 + 债务 + 优先股 − 现金储备) / 所持 BTC 价值，2024-12-31 起公布。
+      Strategy 2025 年起大量发行优先股，这部分资金也换成了 BTC，所以 EV 口径更能反映整体溢价；
+      市值口径低于 1 而 EV 口径高于 1，说明普通股排在债务和优先股之后，承担了资本结构的杠杆。
+      <br><b>官网 mNAV</b> 是 Strategy 官网首页展示的数值，口径以官网说明为准。
+      <br><b>早期数据</b>：2020–2021 年 BTC 持仓相对公司体量还小，市值里有相当部分是软件业务的估值，这段 mNAV 偏高不全是 BTC 溢价。
+      <br>数据来源：Strategy 官网图表页使用的公开接口 <code>api.strategy.com/btc/timeSeries</code>，非文档化接口；
+      某天抓取失败时沿用上一次的数据，不影响其他页面更新。
+    </div>
+  </section>
 </div>
 
 <script>
@@ -370,22 +414,7 @@ function insightsWindow() {
 }
 
 function renderInsight() {
-  const list = state.mode === 'asset' ? insightsAsset() : insightsWindow();
-  const ul = document.getElementById('insight');
-  ul.replaceChildren();
-  for (const it of list) {
-    const li = document.createElement('li');
-    const tag = document.createElement('span');
-    tag.className = `tag ${it.tone}`;
-    tag.textContent = it.tag;
-    const p = document.createElement('span');
-    for (const part of it.parts) {
-      if (typeof part === 'string') p.append(part);
-      else { const b = document.createElement('b'); b.textContent = part.b; p.append(b); }
-    }
-    li.append(tag, p);
-    ul.append(li);
-  }
+  renderList('insight', state.mode === 'asset' ? insightsAsset() : insightsWindow());
   const scope = state.mode === 'asset'
     ? `${state.asset} · ${D.windows.filter(w => state.windows.includes(w)).map(w => w + ' 日').join(' / ') || '未选窗口'}`
     : `${state.window} 日 · ${state.assets.join(' / ') || '未选资产'}`;
@@ -548,6 +577,280 @@ function renderChart() {
   }, { notMerge: true });
 }
 
+/* ---------------- MSTR mNAV ---------------- */
+
+let M = null;
+// 默认看近 3 年：2020 年市值口径 mNAV 高达 5~7 倍（主要是软件业务估值），全区间会把近几年压扁
+const mstate = { lines: ['mnav_mc', 'mnav_ev'], log: false, range: '36' };
+const MNAV_LINES = [
+  { key: 'mnav_mc', label: '市值口径', color: '#3987e5' },
+  { key: 'mnav_ev', label: 'EV 口径（官方）', color: '#d95926' },
+];
+const fmtB = (m) => m == null ? '—' : `$${(m / 1000).toFixed(1)}B`;  // 接口单位是百万美元
+const premText = (v) => {
+  const p = (v - 1) * 100;
+  return p >= 0 ? `溢价 ${p.toFixed(0)}%` : `折价 ${(-p).toFixed(0)}%`;
+};
+
+function mnavRangeStart() {
+  if (mstate.range === 'all') return null;
+  const d = new Date(M.as_of);
+  d.setMonth(d.getMonth() - Number(mstate.range));
+  return d.toISOString().slice(0, 10);
+}
+
+const mnavRangeLabel = () => ({ all: '2020-08 以来', 36: '近 3 年', 12: '近 1 年', 6: '近 6 个月' }[mstate.range]);
+
+/** 某条 mNAV 序列在当前时间范围内的统计。 */
+function mnavStats(key) {
+  const arr = M[key], from = mnavRangeStart();
+  let last = -1;
+  const vals = [];
+  for (let i = 0; i < M.dates.length; i++) {
+    if (arr[i] == null) continue;
+    last = i;
+    if (!from || M.dates[i] >= from) vals.push([M.dates[i], arr[i]]);
+  }
+  if (last < 0 || !vals.length) return null;
+  const latest = arr[last];
+  const sorted = vals.map(v => v[1]);
+  const lo = vals.reduce((a, b) => (b[1] < a[1] ? b : a));
+  const hi = vals.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const ago = (n) => (last - n >= 0 && arr[last - n] != null ? latest - arr[last - n] : null);
+  return {
+    latest, date: M.dates[last], n: vals.length, first: vals[0][0],
+    pct: sorted.length > 1 ? sorted.filter(v => v < latest).length / (sorted.length - 1) : null,
+    lo, hi, chg1m: ago(21), chg3m: ago(63),
+  };
+}
+
+function renderMnavReadout() {
+  const i = M.dates.length - 1;
+  const lastOf = (key) => { for (let j = i; j >= 0; j--) if (M[key][j] != null) return M[key][j]; return null; };
+  const mc = lastOf('mnav_mc'), ev = lastOf('mnav_ev'), official = lastOf('mnav');
+  const items = [
+    ['市值口径 mNAV', mc == null ? '—' : mc.toFixed(2) + '×', mc == null ? '' : premText(mc), mc >= 1 ? 'prem' : 'disc'],
+    ['EV 口径 mNAV', ev == null ? '—' : ev.toFixed(2) + '×', ev == null ? '' : premText(ev), ev >= 1 ? 'prem' : 'disc'],
+    ['官网 mNAV', official == null ? '—' : official.toFixed(2) + '×', '官网首页口径', ''],
+    ['BTC 持仓', M.btc_holdings[i].toLocaleString() + ' BTC', '', ''],
+    ['BTC 净值', fmtB(M.btc_nav[i]), '', ''],
+    ['普通股市值', fmtB(M.market_cap[i]), '', ''],
+  ];
+  const box = document.getElementById('mnavReadout');
+  box.replaceChildren();
+  for (const [k, v, d, cls] of items) {
+    const it = document.createElement('div'); it.className = 'item';
+    const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+    const vv = document.createElement('span'); vv.className = `v ${cls}`; vv.textContent = v;
+    it.append(kk, vv);
+    if (d) { const dd = document.createElement('span'); dd.className = 'd'; dd.textContent = d; it.append(dd); }
+    box.append(it);
+  }
+  const note = document.createElement('span'); note.className = 'note';
+  note.textContent = `截至 ${M.as_of} 美股收盘`;
+  box.append(note);
+}
+
+function renderMnavControls() {
+  const box = document.getElementById('mnavChips');
+  box.replaceChildren();
+  for (const l of MNAV_LINES) {
+    const on = mstate.lines.includes(l.key);
+    const locked = on && mstate.lines.length === 1;
+    const lab = document.createElement('label');
+    lab.className = `chip sm ${on ? 'on' : ''} ${locked ? 'locked' : ''}`;
+    lab.style.setProperty('--tone', l.color);
+    const inp = document.createElement('input');
+    inp.type = 'checkbox'; inp.checked = on; inp.disabled = locked; inp.dataset.line = l.key;
+    const b = document.createElement('span'); b.className = 'box';
+    lab.append(inp, b, l.label);
+    box.append(lab);
+  }
+  document.getElementById('mnavLog').checked = mstate.log;
+  document.querySelectorAll('#mnavRangeSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.range === mstate.range));
+}
+
+function renderMnavChart() {
+  if (!charts.mnav) {
+    const el = document.getElementById('chartMnav');
+    charts.mnav = echarts.init(el, null, { renderer: 'canvas' });
+    new ResizeObserver(() => charts.mnav.resize()).observe(el);
+  }
+  const lines = MNAV_LINES.filter(l => mstate.lines.includes(l.key));
+  const from = mnavRangeStart();
+  const series = lines.map((l, idx) => ({
+    name: l.label, type: 'line', showSymbol: false, sampling: 'lttb',
+    data: M.dates.map((d, i) => [d, M[l.key][i]]).filter(p => p[1] != null),
+    lineStyle: { width: 1.8, color: l.color }, itemStyle: { color: l.color },
+    endLabel: { show: true, formatter: (p) => `${p.value[1].toFixed(2)}×`, color: LABEL, fontSize: 11 },
+    labelLayout: { moveOverlap: 'shiftY' },
+    markLine: idx === 0 ? {
+      silent: true, symbol: 'none', data: [{ yAxis: 1 }],
+      lineStyle: { color: '#4a5266', type: 'dashed', width: 1 },
+      label: { formatter: 'mNAV = 1（市值 = 持币价值）', color: FAINT, fontSize: 10, position: 'insideStartTop' },
+    } : undefined,
+  }));
+
+  charts.mnav.setOption({
+    ...baseOption(),
+    legend: { ...baseOption().legend, top: 8, left: 'right', right: 16 },
+    grid: { left: 52, right: 64, top: 40, bottom: 64 },
+    xAxis: {
+      type: 'time', min: from || M.dates[0], max: M.as_of,
+      axisLine: { lineStyle: { color: AXIS } }, axisTick: { show: false },
+      axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false },
+    },
+    yAxis: {
+      type: mstate.log ? 'log' : 'value', scale: true, logBase: 2,
+      axisLabel: { color: LABEL, fontSize: 11, formatter: v => v.toFixed(v < 2 ? 2 : 1) + '×' },
+      splitLine: { lineStyle: { color: GRID_LINE } },
+    },
+    dataZoom: zoomCfg(0, [0]),
+    tooltip: {
+      ...tooltipBase,
+      axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      formatter: (ps) => {
+        if (!ps.length) return '';
+        const date = echarts.time.format(ps[0].value[0], '{yyyy}-{MM}-{dd}', false);
+        const i = M.dates.indexOf(date);
+        const rows = ps.map(p =>
+          `<tr><td style="padding-right:14px"><span style="display:inline-block;width:12px;height:2px;` +
+          `background:${p.color};vertical-align:middle;margin-right:7px"></span>${p.seriesName}</td>` +
+          `<td style="text-align:right;font-weight:600">${p.value[1].toFixed(3)}×</td></tr>`).join('');
+        const extra = i >= 0
+          ? `<tr><td style="padding-right:14px;color:${LABEL}">BTC 持仓</td><td style="text-align:right">${M.btc_holdings[i].toLocaleString()}</td></tr>` +
+            `<tr><td style="padding-right:14px;color:${LABEL}">BTC 净值 / 市值</td><td style="text-align:right">${fmtB(M.btc_nav[i])} / ${fmtB(M.market_cap[i])}</td></tr>`
+          : '';
+        return `<div style="font-weight:600;margin-bottom:6px">${date}</div>` +
+          `<table style="font-variant-numeric:tabular-nums;border-spacing:0">${rows}${extra}</table>`;
+      },
+    },
+    series,
+  }, { notMerge: true });
+}
+
+/* mNAV 解读。和 Beta 一样是纯规则：分位 ≥85% / ≤15% 算高位 / 低位，1 个月变化超过 0.1 才提。 */
+function mnavInsights() {
+  const out = [];
+  const mc = mnavStats('mnav_mc'), ev = mnavStats('mnav_ev');
+  if (!mc) return [item('提示', 'note', ['还没有 mNAV 数据。'])];
+
+  out.push(item('水平', mc.latest >= 1 ? 'up' : 'down', [
+    '按市值口径，MSTR 当前 mNAV 为 ', { b: `${mc.latest.toFixed(2)}×` }, `（${premText(mc.latest)}），`,
+    mc.latest >= 1
+      ? '普通股市值高于所持 BTC 的价值，市场愿意为它的持币和融资能力付溢价。'
+      : '普通股市值已经低于所持 BTC 的价值。',
+  ]));
+
+  if (ev) {
+    const parts = ['按 Strategy 官方的 EV 口径（计入债务和优先股）为 ', { b: `${ev.latest.toFixed(2)}×` }, '。'];
+    if (mc.latest < 1 && ev.latest >= 1) {
+      parts.push('市值口径折价、EV 口径仍有溢价，说明折价主要来自资本结构：普通股排在债务和优先股之后，',
+        '承担了杠杆，而不是市场认为整体资产不值这个价。');
+    } else if (ev.latest < 1) {
+      parts.push('连计入债务和优先股的整体估值都低于持币价值，这在 Strategy 的历史上很少见。');
+    }
+    out.push(item('EV 口径', ev.latest >= 1 ? '' : 'down', parts));
+  }
+
+  const posParts = [`在${mnavRangeLabel()}，市值口径 mNAV 处于 `, { b: `${Math.round(mc.pct * 100)}% 分位` },
+    `，区间最低 `, { b: `${mc.lo[1].toFixed(2)}×` }, `（${mc.lo[0]}），最高 `, { b: `${mc.hi[1].toFixed(2)}×` },
+    `（${mc.hi[0]}）`];
+  if (mc.pct >= 0.85) posParts.push('，接近这段时间的高点。');
+  else if (mc.pct <= 0.15) posParts.push('，接近这段时间的低点。');
+  else posParts.push('。');
+  out.push(item('历史位置', mc.pct >= 0.85 ? 'up' : mc.pct <= 0.15 ? 'down' : '', posParts));
+
+  const moves = [];
+  if (mc.chg1m != null) moves.push(`较 1 个月前${mc.chg1m >= 0 ? '上升' : '下降'} `, { b: Math.abs(mc.chg1m).toFixed(2) });
+  if (mc.chg3m != null) moves.push(`，较 3 个月前${mc.chg3m >= 0 ? '上升' : '下降'} `, { b: Math.abs(mc.chg3m).toFixed(2) });
+  if (moves.length) {
+    const big = mc.chg1m != null && Math.abs(mc.chg1m) >= 0.1;
+    out.push(item('近期变化', big ? (mc.chg1m > 0 ? 'up' : 'down') : '', ['市值口径 mNAV ', ...moves,
+      big ? '，溢价变化明显。' : '，最近一个月变化不大。']));
+  }
+
+  const i = M.dates.length - 1, back = i - 63;
+  if (back >= 0) {
+    const added = M.btc_holdings[i] - M.btc_holdings[back];
+    out.push(item('持币', added > 0 ? 'up' : '', [
+      '当前持有 ', { b: `${M.btc_holdings[i].toLocaleString()} BTC` },
+      added > 0 ? '，近 3 个月增持 ' : '，近 3 个月没有增持',
+      ...(added > 0 ? [{ b: `${added.toLocaleString()} BTC` }, '。'] : ['。']),
+    ]));
+  }
+
+  out.push(item('怎么理解', '', [
+    'mNAV 高于 1 时，增发普通股买币能提高每股对应的 BTC 数量；低于 1 时增发普通股会稀释每股持币，',
+    '公司通常转向债务或优先股融资。所以 mNAV 高低会直接影响 Strategy 继续买币的方式和速度。',
+  ]));
+  if (!mnavRangeStart() || mnavRangeStart() < '2022-01-01') {
+    out.push(item('注意', 'note', ['2020–2021 年市值里有相当部分是软件业务估值，这段的高 mNAV 不全是 BTC 溢价。']));
+  }
+  return out;
+}
+
+function renderList(ulId, list) {
+  const ul = document.getElementById(ulId);
+  ul.replaceChildren();
+  for (const it of list) {
+    const li = document.createElement('li');
+    const tag = document.createElement('span');
+    tag.className = `tag ${it.tone}`;
+    tag.textContent = it.tag;
+    const p = document.createElement('span');
+    for (const part of it.parts) {
+      if (typeof part === 'string') p.append(part);
+      else { const b = document.createElement('b'); b.textContent = part.b; p.append(b); }
+    }
+    li.append(tag, p);
+    ul.append(li);
+  }
+}
+
+function updateMnav() {
+  renderMnavControls();
+  renderMnavChart();
+  renderList('mnavInsight', mnavInsights());
+  document.getElementById('mnavScope').textContent = `市值口径为主 · ${mnavRangeLabel()} · 截至 ${M.as_of}`;
+  try { localStorage.setItem('mnav-view', JSON.stringify(mstate)); } catch (e) { /* 忽略 */ }
+}
+
+async function bootMnav() {
+  try {
+    M = await get(dataUrl.mnav());
+  } catch (e) {
+    // mNAV 是非核心数据，缺了就不显示这一块，不影响上面的 Beta
+    document.getElementById('mnavBlock').hidden = true;
+    return;
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem('mnav-view') || 'null');
+    if (saved) Object.assign(mstate, saved);
+  } catch (e) { /* 忽略 */ }
+  mstate.lines = mstate.lines.filter(k => MNAV_LINES.some(l => l.key === k));
+  if (!mstate.lines.length) mstate.lines = MNAV_LINES.map(l => l.key);
+
+  renderMnavReadout();
+  document.getElementById('mnavChips').addEventListener('change', (e) => {
+    const k = e.target.dataset.line;
+    if (!k) return;
+    mstate.lines = e.target.checked
+      ? MNAV_LINES.map(l => l.key).filter(x => x === k || mstate.lines.includes(x))
+      : mstate.lines.filter(x => x !== k);
+    updateMnav();
+  });
+  document.getElementById('mnavLog').addEventListener('change', (e) => {
+    mstate.log = e.target.checked; updateMnav();
+  });
+  document.getElementById('mnavRangeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { mstate.range = b.dataset.range; updateMnav(); }
+  });
+  updateMnav();
+}
+
 /* ---------------- 调度 ---------------- */
 
 const STORE_KEY = 'beta-view';
@@ -623,6 +926,7 @@ function update() {
   });
 
   update();
+  bootMnav();
 })();
 </script>
 </body>

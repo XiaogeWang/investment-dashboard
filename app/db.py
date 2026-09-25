@@ -53,6 +53,20 @@ CREATE TABLE IF NOT EXISTS equity_close (
     PRIMARY KEY (symbol, date)
 );
 
+-- Strategy (MSTR) 的 mNAV 相关日度数据，来自 Strategy 官网的公开接口。
+-- 金额单位均为「百万美元」，和接口原样保持一致。
+CREATE TABLE IF NOT EXISTS mstr_nav (
+    date         TEXT PRIMARY KEY,
+    price        REAL,
+    market_cap   REAL NOT NULL,
+    btc_nav      REAL NOT NULL,
+    btc_holdings REAL NOT NULL,
+    mnav_ev      REAL,
+    mnav         REAL,
+    source       TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+
 -- CMC 官方口径快照，用于校验自算供应量的偏差；无 API Key 时该表为空
 CREATE TABLE IF NOT EXISTS cmc_snapshot (
     date                TEXT PRIMARY KEY,
@@ -150,6 +164,27 @@ def fetch_equity(conn, symbol: str, start: str | None = None):
         params.append(start)
     sql += " ORDER BY date"
     return conn.execute(sql, params).fetchall()
+
+
+def upsert_mstr_nav(conn, rows: list[dict]) -> int:
+    conn.executemany(
+        """
+        INSERT INTO mstr_nav (date, price, market_cap, btc_nav, btc_holdings, mnav_ev, mnav,
+                              source, updated_at)
+        VALUES (:date, :price, :market_cap, :btc_nav, :btc_holdings, :mnav_ev, :mnav,
+                :source, :updated_at)
+        ON CONFLICT(date) DO UPDATE SET
+            price=excluded.price, market_cap=excluded.market_cap, btc_nav=excluded.btc_nav,
+            btc_holdings=excluded.btc_holdings, mnav_ev=excluded.mnav_ev, mnav=excluded.mnav,
+            source=excluded.source, updated_at=excluded.updated_at
+        """,
+        rows,
+    )
+    return len(rows)
+
+
+def fetch_mstr_nav(conn):
+    return conn.execute("SELECT * FROM mstr_nav ORDER BY date").fetchall()
 
 
 def log_ingest(conn, run_at: str, asset: str, status: str, rows: int, message: str = ""):

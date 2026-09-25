@@ -245,6 +245,10 @@ MACRO_GROUPS = {
     "money": "货币",
 }
 
+# Strategy 官网图表页用的公开接口，无需鉴权，返回 MSTR / BTC 等 30 多个标的的日度序列。
+# 不是官方文档化的 API，随时可能变，所以抓取失败不阻塞每日任务（见 ingest.py）。
+STRATEGY_TIMESERIES_URL = "https://api.strategy.com/btc/timeSeries"
+
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 TREASURY_DEBT_URL = (
     "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"

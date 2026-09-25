@@ -215,7 +215,7 @@ crontab -e
 |---|---|
 | `web/index.html` | 资产市值 —— BTC / 黄金的 K 线与相对法币体系的估值水位 |
 | `web/macro.html` | 宏观相关性 —— 利率期限结构、债务、股指，以及它们之间的相关性 |
-| `web/beta.html` | 加密股 Beta —— MSTR / COIN / HOOD / CRCL 相对 BTC 的滚动 Beta 与自动解读 |
+| `web/beta.html` | 加密股 Beta —— MSTR / COIN / HOOD / CRCL 相对 BTC 的滚动 Beta，以及 MSTR 的 mNAV，均带自动解读 |
 
 共用的样式和工具函数抽在 `web/app.css` 与 `web/common.js`，避免各页复制之后各自漂移。
 
@@ -350,6 +350,26 @@ Beta 的估计误差约为 `1/√N · √(1−ρ²)/ρ`，ρ = 0.5 时 30 日约
 （小于这个数基本在估计误差内）；β 与 ρ 背离时（β ≥ 1 但 ρ < 0.5）会提示高 β 主要来自股票自身波动，
 用 BTC 对冲效果打折扣。勾选 30 日或样本不足 120 个点时会附带提示。
 
+### 4.4 MSTR mNAV
+
+同在 `beta.html`，Beta 板块下方。mNAV 是股票估值相对所持 BTC 价值的倍数，两种口径：
+
+| 口径 | 公式 | 起点 |
+|---|---|---|
+| 市值口径 | 普通股市值 / BTC 净值 | 2020-08-10（开始买币）|
+| EV 口径（Strategy 官方）| (市值 + 债务 + 优先股 − 现金储备) / BTC 净值 | 2024-12-31 |
+
+另外读数卡上还展示 Strategy 官网首页的 mNAV（接口里的 `mNav` 字段，2026-06 起才有），口径以官网为准。
+
+**数据源**：Strategy 官网图表页用的 `https://api.strategy.com/btc/timeSeries`，无需鉴权，GitHub Actions
+上可以直接访问（`www.strategy.com` 本身对非浏览器请求返回 403，只有 `api.` 子域能用）。
+它**不是文档化的 API**，所以抓取失败时只记日志、不让每日任务失败：CI 每次都是全新的库，
+库里没数据时 `export_mnav` 不覆盖，页面继续用上一次提交的 `data/mnav.json`。金额单位是百万美元。
+
+**解读**：当前溢价 / 折价、市值口径与 EV 口径是否背离（市值折价但 EV 溢价，说明普通股承担了债务和
+优先股的杠杆）、历史分位、1 个月 / 3 个月变化、近 3 个月增持数量。默认时间范围是近 3 年：
+2020 年刚开始买币时市值口径高达 5~7 倍，主要是软件业务的估值，放进全区间会把近几年的变化压扁。
+
 ---
 
 ## 接口
@@ -366,6 +386,7 @@ Beta 的估计误差约为 `1/√N · √(1−ρ²)/ρ`，ρ = 0.5 时 30 日约
 | `GET /api/panel` | 相关性分析用的对齐月度面板（所有序列 + 资产市值）|
 | `GET /api/summary` | 最新市值、涨跌、资产间比值、宏观最新值与 sparkline |
 | `GET /api/beta` | 加密股相对 BTC 的滚动 Beta / 相关系数 |
+| `GET /api/mnav` | Strategy (MSTR) 的 mNAV、持币量、BTC 净值与市值 |
 
 ---
 
@@ -424,12 +445,13 @@ investment-dashboard/
 │   ├── aggregate.py      周期聚合、AsOf 前向填充、派生比值口径
 │   ├── analysis.py       相关性分析用的对齐月度面板与去趋势规则
 │   ├── beta.py           加密股复权价抓取与相对 BTC 的滚动 Beta
+│   ├── mnav.py           Strategy (MSTR) mNAV 抓取（api.strategy.com）
 │   ├── export_static.py  导出静态 JSON（GitHub Pages 用）
 │   └── main.py           FastAPI 接口（本地开发用）
 ├── web/
 │   ├── index.html        资产市值页
 │   ├── macro.html        宏观相关性页
-│   ├── beta.html         加密股 Beta 页
+│   ├── beta.html         加密股 Beta 与 MSTR mNAV 页
 │   ├── app.css           各页共用样式
 │   ├── common.js         各页共用工具函数与图表主题
 │   ├── data/             预生成 JSON，由 export_static.py 产出

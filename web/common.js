@@ -12,6 +12,7 @@ const dataUrl = {
   macro: (series, period) => `data/macro/${series}_${period}.json`,
   panel: () => 'data/panel_month.json',
   beta: () => 'data/beta.json',
+  mnav: () => 'data/mnav.json',
 };
 
 async function get(url) {

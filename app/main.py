@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import beta, db
+from . import beta, db, mnav
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
 from .analysis import build_panel
@@ -137,6 +137,16 @@ def beta_series():
     """加密股相对 BTC 的滚动 Beta，和 data/beta.json 同构。"""
     with db.connect() as conn:
         return beta.build(conn)
+
+
+@app.get("/api/mnav")
+def mstr_mnav():
+    """Strategy (MSTR) 的 mNAV，和 data/mnav.json 同构。"""
+    with db.connect() as conn:
+        data = mnav.build(conn)
+    if data is None:
+        raise HTTPException(404, "还没有 mNAV 数据，先跑一次 python -m app.ingest")
+    return data
 
 
 @app.get("/api/summary")
