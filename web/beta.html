@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>加密股 BTC Beta · MSTR / COIN / HOOD / CRCL</title>
+<link rel="stylesheet" href="app.css">
+<script src="vendor/echarts.min.js"></script>
+<script src="common.js"></script>
+<style>
+  /* 本页专用：最新值表格、数据解读 */
+  .beta-table-wrap { overflow-x: auto; margin-bottom: 18px; }
+  .beta-table {
+    width: 100%; min-width: 640px; border-collapse: separate; border-spacing: 0;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .beta-table th, .beta-table td { padding: 11px 16px; text-align: right; white-space: nowrap; }
+  .beta-table th {
+    color: var(--text-faint); font-size: 11px; font-weight: 500; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+  .beta-table th:first-child, .beta-table td:first-child { text-align: left; }
+  .beta-table tbody tr + tr td { border-top: 1px solid var(--border); }
+  .beta-table .v { font-size: 16px; font-weight: 600; }
+  .beta-table .r { display: block; color: var(--text-faint); font-size: 11px; margin-top: 2px; }
+  .beta-table .full { background: var(--panel-2); }
+  .beta-table tbody tr:last-child .full { border-bottom-right-radius: 12px; }
+  .sym { display: inline-flex; align-items: center; gap: 9px; font-weight: 600; }
+  .sym i { width: 14px; height: 3px; border-radius: 2px; flex: none; }
+  .sym small { color: var(--text-faint); font-weight: 400; font-size: 11px; }
+  .gt1 { color: var(--text); }
+  .lt1 { color: var(--text-dim); }
+
+  .toolbar .label { color: var(--text-faint); font-size: 12px; }
+  .chart.beta { height: 520px; }
+
+  .insight {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 18px; margin-top: 12px;
+  }
+  .insight h2 {
+    font-size: 13px; font-weight: 600; margin: 0 0 10px; color: var(--text);
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .insight h2 span { color: var(--text-faint); font-weight: 400; font-size: 12px; }
+  .insight ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .insight li { display: flex; gap: 10px; align-items: baseline; line-height: 1.65; color: var(--text-dim); }
+  .insight li b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tag {
+    flex: none; font-size: 11px; padding: 1px 8px; border-radius: 5px;
+    border: 1px solid var(--border); color: var(--text-dim); background: var(--panel);
+    min-width: 56px; text-align: center;
+  }
+  .tag.up { color: var(--up); border-color: rgba(38,166,154,.35); }
+  .tag.down { color: var(--down); border-color: rgba(239,83,80,.35); }
+  .tag.note { color: #d8a657; border-color: rgba(216,166,87,.35); }
+  .empty-note { color: var(--text-faint); }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 16px 16px 28px; }
+    .chart.beta { height: 400px; }
+    .insight li { flex-direction: column; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>加密股 BTC Beta<span class="sub">MSTR · COIN · HOOD · CRCL</span></h1>
+    <nav class="nav">
+      <a href="index.html">资产市值</a>
+      <a href="macro.html">宏观相关性</a>
+      <a href="beta.html">加密股 Beta</a>
+    </nav>
+    <div class="stamp" id="stamp">加载中…</div>
+  </header>
+
+  <div class="section-label">最新滚动 Beta · 小字为该窗口历史区间</div>
+  <div class="beta-table-wrap">
+    <table class="beta-table num">
+      <thead id="thead"></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="toolbar">
+    <div class="seg" id="modeSeg">
+      <button data-mode="asset">单资产 · 多周期</button>
+      <button data-mode="window">多资产 · 同周期</button>
+    </div>
+    <div class="divider"></div>
+    <div class="seg" id="pickSeg"></div>
+    <div class="chips" id="chips"></div>
+    <div class="spacer"></div>
+    <div class="seg" id="rangeSeg">
+      <button data-range="all">全部</button>
+      <button data-range="36">3 年</button>
+      <button data-range="12">1 年</button>
+      <button data-range="6">6 个月</button>
+    </div>
+  </div>
+
+  <div class="chart-panel"><div id="chart" class="chart beta"></div></div>
+
+  <section class="insight" aria-live="polite">
+    <h2>数据解读<span id="insightScope"></span></h2>
+    <ul id="insight"></ul>
+  </section>
+
+  <div class="foot">
+    <b>计算口径</b>：β = Cov(R<sub>股票</sub>, R<sub>BTC</sub>) / Var(R<sub>BTC</sub>)，R 为对数日收益率，
+    窗口 N 即最近 N 个美股交易日。股票用复权收盘价，拆股不会造成跳变。
+    <br><b>起算日</b>：2020-09-01 与上市日中较晚者。MSTR 1998 年上市，但 2020-08 才开始买入 BTC，更早的数据与 BTC 无关。
+    <br><b>时间对齐</b>：按美股交易日取 BTC 收盘价，周末涨跌并入下周一。BTC 日收盘为 UTC 0 点、美股为美东 16:00，
+    存在几个小时的错位，会让 Beta 略微偏低。
+    <br><b>窗口怎么选</b>：Beta 估计误差约为 1/√N·√(1−ρ²)/ρ。相关系数 0.5 时，30 日约 ±30%，120 日约 ±16%，
+    所以 30 日只适合看短期拐点，120 日更适合作为主要参考。
+    <br>数据解读由规则自动生成，只描述统计特征，不构成投资建议。
+  </div>
+</div>
+
+<script>
+let D = null;
+const state = { mode: 'asset', asset: 'MSTR', windows: null, window: 60, assets: null, range: 'all' };
+const charts = {};
+
+// 窗口是有序的：同一个蓝色由暗到亮，越长越醒目
+const WIN_COLOR = { 30: '#184f95', 60: '#2a78d6', 120: '#6da7ec', 250: '#b7d3f6' };
+const winColor = (w) => WIN_COLOR[w] || ACCENT;
+const f2 = (v) => v == null ? '—' : v.toFixed(2);
+const sgn = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
+
+/* ---------------- 取数与统计 ---------------- */
+
+function rangeStart() {
+  if (state.range === 'all') return null;
+  const d = new Date(D.as_of);
+  d.setMonth(d.getMonth() - Number(state.range));
+  return d.toISOString().slice(0, 10);
+}
+
+/** 某只股票某个窗口在当前时间范围内的统计：最新值、分位、区间、3 个月变化、相关系数。 */
+function stats(sym, w) {
+  const s = D.stocks[sym];
+  const betas = s.beta[w], corrs = s.corr[w];
+  const from = rangeStart();
+  const vals = [];
+  let last = -1;
+  for (let i = 0; i < s.dates.length; i++) {
+    if (betas[i] == null) continue;
+    last = i;
+    if (!from || s.dates[i] >= from) vals.push(betas[i]);
+  }
+  if (last < 0 || !vals.length) return null;
+  const latest = betas[last];
+  const below = vals.filter(v => v < latest).length;
+  const back = last - 63;  // 约 3 个月的交易日
+  return {
+    latest, corr: corrs[last], date: s.dates[last],
+    pct: vals.length > 1 ? below / (vals.length - 1) : null,
+    min: Math.min(...vals), max: Math.max(...vals), n: vals.length,
+    chg3m: back >= 0 && betas[back] != null ? latest - betas[back] : null,
+  };
+}
+
+function pairs(sym, w) {
+  const s = D.stocks[sym];
+  const out = [];
+  for (let i = 0; i < s.dates.length; i++) {
+    if (s.beta[w][i] != null) out.push([s.dates[i], s.beta[w][i]]);
+  }
+  return out;
+}
+
+/* ---------------- 数据解读 ----------------
+ * 纯规则，不调用模型：同样的勾选状态永远得到同样的结论，每天数据更新后自动跟着变。
+ * 阈值：β 与 1 相差 0.2 以内视为「和 BTC 同幅」；分位 ≥85% / ≤15% 视为历史高位 / 低位；
+ * 周期之间相差 0.15 以上才算有差异（小于 120 日窗口的估计误差就不值得说）。
+ */
+
+const pctText = (p) => `${Math.round(p * 100)}% 分位`;
+
+function levelWord(b) {
+  if (b >= 1.2) return '明显放大 BTC 的涨跌';
+  if (b > 0.8) return '和 BTC 涨跌幅度接近';
+  if (b > 0.3) return '涨跌幅度小于 BTC';
+  return '和 BTC 基本没有联动';
+}
+
+function corrWord(r) {
+  if (r >= 0.7) return '同步性很高，走势基本跟着 BTC';
+  if (r >= 0.5) return '同步性中等偏高';
+  if (r >= 0.3) return '同步性一般，走势很大部分来自自身因素';
+  return '同步性很弱';
+}
+
+function rangeLabel() {
+  return { all: '起算至今', 36: '近 3 年', 12: '近 1 年', 6: '近 6 个月' }[state.range];
+}
+
+/** 句子由片段拼成：字符串原样输出，{b} 加粗。全部走 textContent。 */
+function item(tag, tone, parts) { return { tag, tone, parts }; }
+
+function insightsAsset() {
+  const sym = state.asset, s = D.stocks[sym];
+  const ws = D.windows.filter(w => state.windows.includes(w));
+  const st = Object.fromEntries(ws.map(w => [w, stats(sym, w)]).filter(([, v]) => v));
+  const have = ws.filter(w => st[w]);
+  const out = [];
+  if (!have.length) return [item('提示', 'note', [`${sym} 在所选窗口下还没有足够的数据。`])];
+
+  const main = [120, 60, 250, 30].find(w => st[w]) ;
+  const m = st[main];
+  const implied = m.corr ? m.latest / m.corr : null;  // β = ρ·σs/σb，所以 σs/σb = β/ρ
+  out.push(item('水平', m.latest >= 1 ? 'up' : '', [
+    `以 ${main} 日窗口为准，${sym} 当前 β 为 `, { b: f2(m.latest) }, `，${levelWord(m.latest)}：`,
+    `BTC 涨跌 1%，${sym} 平均涨跌约 `, { b: `${f2(m.latest)}%` }, '。',
+  ]));
+  if (m.corr != null) {
+    out.push(item('同步性', '', [
+      `${main} 日相关系数 ρ = `, { b: f2(m.corr) }, `，${corrWord(m.corr)}。`,
+      ...(implied ? [`按 β/ρ 推算，${sym} 自身波动率约为 BTC 的 `, { b: `${implied.toFixed(1)} 倍` }, '。'] : []),
+      ...(m.corr < 0.5 && m.latest >= 1
+        ? ['β 偏高主要是因为股票自己波动大，而不是和 BTC 高度绑定，用 BTC 对冲的效果会打折扣。'] : []),
+    ]));
+  }
+
+  if (have.length >= 2) {
+    const sw = have[0], lw = have.at(-1);
+    const d = st[sw].latest - st[lw].latest;
+    if (d > 0.15) {
+      out.push(item('周期对比', 'up', [
+        `短周期高于长周期：${sw} 日 β `, { b: f2(st[sw].latest) }, ` 比 ${lw} 日的 `, { b: f2(st[lw].latest) },
+        ' 高 ', { b: d.toFixed(2) }, '，说明最近和 BTC 的联动在增强。',
+      ]));
+    } else if (d < -0.15) {
+      out.push(item('周期对比', 'down', [
+        `短周期低于长周期：${sw} 日 β `, { b: f2(st[sw].latest) }, ` 比 ${lw} 日的 `, { b: f2(st[lw].latest) },
+        ' 低 ', { b: (-d).toFixed(2) }, '，说明最近和 BTC 的联动在减弱，走势更多由自身消息驱动。',
+      ]));
+    } else {
+      out.push(item('周期对比', '', [
+        `${sw} 日到 ${lw} 日的 β 在 `, { b: `${f2(Math.min(...have.map(w => st[w].latest)))} ~ ${f2(Math.max(...have.map(w => st[w].latest)))}` },
+        ' 之间，各时间尺度结论一致，关系比较稳定。',
+      ]));
+    }
+  }
+
+  const high = have.filter(w => st[w].pct != null && st[w].pct >= 0.85);
+  const low = have.filter(w => st[w].pct != null && st[w].pct <= 0.15);
+  if (high.length || low.length) {
+    const parts = [`在${rangeLabel()}的历史里，`];
+    if (high.length) {
+      parts.push(high.map(w => `${w} 日`).join('、'), ' β 处于高位（',
+        { b: high.map(w => pctText(st[w].pct)).join(' / ') }, '）');
+    }
+    if (high.length && low.length) parts.push('；');
+    if (low.length) {
+      parts.push(low.map(w => `${w} 日`).join('、'), ' β 处于低位（',
+        { b: low.map(w => pctText(st[w].pct)).join(' / ') }, '）');
+    }
+    parts.push('。');
+    out.push(item('历史位置', high.length ? 'up' : 'down', parts));
+  } else {
+    out.push(item('历史位置', '', [
+      `${main} 日 β 在${rangeLabel()}处于 `, { b: pctText(m.pct ?? 0.5) },
+      `（区间 ${f2(m.min)} ~ ${f2(m.max)}），不在极端位置。`,
+    ]));
+  }
+
+  if (m.chg3m != null && Math.abs(m.chg3m) >= 0.1) {
+    out.push(item('近期变化', m.chg3m > 0 ? 'up' : 'down', [
+      `${main} 日 β 较 3 个月前${m.chg3m > 0 ? '上升' : '下降'}了 `, { b: Math.abs(m.chg3m).toFixed(2) }, '。',
+    ]));
+  }
+
+  if (have.includes(30)) {
+    out.push(item('注意', 'note', ['30 日窗口只有 30 个样本，估计误差约 ±30%，单看它容易被几天的异动带偏。']));
+  }
+  const short = have.filter(w => st[w].n < 120);
+  if (short.length) {
+    out.push(item('注意', 'note', [
+      `${sym} 自 ${s.start} 起算，`, short.map(w => `${w} 日`).join('、'),
+      ` 窗口在${rangeLabel()}只有 `, { b: short.map(w => st[w].n).join(' / ') }, ' 个数据点，历史分位参考意义有限。',
+    ]));
+  }
+  return out;
+}
+
+function insightsWindow() {
+  const w = state.window;
+  const syms = Object.keys(D.stocks).filter(s => state.assets.includes(s));
+  const st = syms.map(s => ({ s, ...stats(s, w) })).filter(x => x.latest != null);
+  if (!st.length) return [item('提示', 'note', [`所选资产在 ${w} 日窗口下还没有足够的数据。`])];
+  const out = [];
+
+  const byBeta = [...st].sort((a, b) => b.latest - a.latest);
+  const rank = [];
+  byBeta.forEach((x, i) => { if (i) rank.push(' > '); rank.push(`${x.s} `, { b: f2(x.latest) }); });
+  out.push(item('排名', '', [`${w} 日 β 从高到低：`, ...rank, '。']));
+
+  if (st.length >= 2) {
+    const top = byBeta[0], bot = byBeta.at(-1), gap = top.latest - bot.latest;
+    const above = byBeta.filter(x => x.latest >= 1).map(x => x.s);
+    out.push(item('对比', '', [
+      above.length
+        ? `${above.join('、')} 的 β 大于 1，涨跌幅度会超过 BTC。`
+        : '所选股票的 β 都小于 1，涨跌幅度都小于 BTC。',
+      `最高的 ${top.s} 和最低的 ${bot.s} 相差 `, { b: gap.toFixed(2) },
+      gap < 0.2 ? '，差距很小，这段时间加密股整体跟着 BTC 走。' : '。',
+    ]));
+
+    const byCorr = [...st].filter(x => x.corr != null).sort((a, b) => b.corr - a.corr);
+    if (byCorr.length >= 2) {
+      out.push(item('同步性', '', [
+        '和 BTC 走势最同步的是 ', { b: `${byCorr[0].s}（ρ = ${f2(byCorr[0].corr)}）` },
+        '，最弱的是 ', { b: `${byCorr.at(-1).s}（ρ = ${f2(byCorr.at(-1).corr)}）` }, '。',
+        ...(byCorr[0].s !== top.s
+          ? [`β 最高的 ${top.s} 并不是最同步的，它的高 β 更多来自自身的大幅波动。`] : []),
+      ]));
+    }
+  } else {
+    const x = st[0];
+    out.push(item('水平', x.latest >= 1 ? 'up' : '', [
+      `${x.s} 当前 ${w} 日 β 为 `, { b: f2(x.latest) }, `，${levelWord(x.latest)}；ρ = `, { b: f2(x.corr) },
+      `，${corrWord(x.corr)}。`,
+    ]));
+  }
+
+  const high = st.filter(x => x.pct != null && x.pct >= 0.85);
+  const low = st.filter(x => x.pct != null && x.pct <= 0.15);
+  if (high.length) {
+    out.push(item('历史位置', 'up', [
+      `相比${rangeLabel()}，`, high.map(x => x.s).join('、'), ' 的 β 处于高位（',
+      { b: high.map(x => `${x.s} ${pctText(x.pct)}`).join('，') }, '），对 BTC 的敏感度接近这段时间的最高水平。',
+    ]));
+  }
+  if (low.length) {
+    out.push(item('历史位置', 'down', [
+      `相比${rangeLabel()}，`, low.map(x => x.s).join('、'), ' 的 β 处于低位（',
+      { b: low.map(x => `${x.s} ${pctText(x.pct)}`).join('，') }, '）。',
+    ]));
+  }
+  if (!high.length && !low.length) {
+    out.push(item('历史位置', '', [`所选股票的 ${w} 日 β 都不在${rangeLabel()}的极端位置。`]));
+  }
+
+  const moved = st.filter(x => x.chg3m != null).sort((a, b) => b.chg3m - a.chg3m);
+  if (moved.length) {
+    const up = moved[0], dn = moved.at(-1);
+    const parts = ['和 3 个月前相比，'];
+    if (up.chg3m >= 0.1) parts.push(`${up.s} 上升最多（`, { b: sgn(up.chg3m) }, '）');
+    if (up.chg3m >= 0.1 && dn.chg3m <= -0.1 && dn !== up) parts.push('，');
+    if (dn.chg3m <= -0.1 && dn !== up) parts.push(`${dn.s} 下降最多（`, { b: sgn(dn.chg3m) }, '）');
+    if (parts.length === 1) parts.push(`各股票的 ${w} 日 β 变化都在 0.1 以内`);
+    parts.push('。');
+    out.push(item('近期变化', '', parts));
+  }
+
+  if (w === 30) {
+    out.push(item('注意', 'note', ['30 日窗口估计误差约 ±30%，排名容易被几天的异动打乱，建议对照 60 或 120 日。']));
+  }
+  const thin = st.filter(x => x.n < 120);
+  if (thin.length) {
+    out.push(item('注意', 'note', [
+      thin.map(x => `${x.s} 只有 ${x.n} 个数据点`).join('，'), '，历史分位参考意义有限。',
+    ]));
+  }
+  return out;
+}
+
+function renderInsight() {
+  const list = state.mode === 'asset' ? insightsAsset() : insightsWindow();
+  const ul = document.getElementById('insight');
+  ul.replaceChildren();
+  for (const it of list) {
+    const li = document.createElement('li');
+    const tag = document.createElement('span');
+    tag.className = `tag ${it.tone}`;
+    tag.textContent = it.tag;
+    const p = document.createElement('span');
+    for (const part of it.parts) {
+      if (typeof part === 'string') p.append(part);
+      else { const b = document.createElement('b'); b.textContent = part.b; p.append(b); }
+    }
+    li.append(tag, p);
+    ul.append(li);
+  }
+  const scope = state.mode === 'asset'
+    ? `${state.asset} · ${D.windows.filter(w => state.windows.includes(w)).map(w => w + ' 日').join(' / ') || '未选窗口'}`
+    : `${state.window} 日 · ${state.assets.join(' / ') || '未选资产'}`;
+  document.getElementById('insightScope').textContent = `${scope} · ${rangeLabel()} · 截至 ${D.as_of}`;
+}
+
+/* ---------------- 表格 ---------------- */
+
+function renderTable() {
+  const head = document.createElement('tr');
+  for (const t of ['标的', ...D.windows.map(w => `${w} 日`), '起算至今']) {
+    const th = document.createElement('th'); th.textContent = t; head.append(th);
+  }
+  document.getElementById('thead').replaceChildren(head);
+
+  const body = document.getElementById('tbody');
+  body.replaceChildren();
+  for (const [sym, s] of Object.entries(D.stocks)) {
+    const tr = document.createElement('tr');
+    const td0 = document.createElement('td');
+    const tag = document.createElement('span'); tag.className = 'sym';
+    const key = document.createElement('i'); key.style.background = s.color;
+    const name = document.createElement('span'); name.textContent = sym;
+    const sm = document.createElement('small'); sm.textContent = `${s.name_cn} · 自 ${s.start}`;
+    tag.append(key, name, sm); td0.append(tag); tr.append(td0);
+
+    const cell = (main, sub, cls) => {
+      const td = document.createElement('td');
+      if (cls) td.className = cls;
+      const v = document.createElement('span'); v.className = 'v'; v.textContent = main;
+      const r = document.createElement('span'); r.className = 'r'; r.textContent = sub;
+      td.append(v, r); return td;
+    };
+    for (const w of D.windows) {
+      const vals = s.beta[w].filter(v => v != null);
+      const last = vals.at(-1);
+      const td = cell(vals.length ? f2(last) : '—',
+        vals.length ? `${f2(Math.min(...vals))} ~ ${f2(Math.max(...vals))}` : '样本不足');
+      td.querySelector('.v').classList.add(last >= 1 ? 'gt1' : 'lt1');
+      tr.append(td);
+    }
+    tr.append(cell(f2(s.full.beta), `ρ ${f2(s.full.corr)} · ${s.full.n} 天`, 'full'));
+    body.append(tr);
+  }
+}
+
+/* ---------------- 控件 ---------------- */
+
+function renderControls() {
+  document.querySelectorAll('#modeSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.mode === state.mode));
+  document.querySelectorAll('#rangeSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.range === state.range));
+
+  const pick = document.getElementById('pickSeg');
+  const chips = document.getElementById('chips');
+  pick.replaceChildren(); chips.replaceChildren();
+
+  const syms = Object.keys(D.stocks);
+  const pickItems = state.mode === 'asset'
+    ? syms.map(s => [s, s, state.asset === s])
+    : D.windows.map(w => [w, `${w} 日`, state.window === w]);
+  for (const [val, text, on] of pickItems) {
+    const b = document.createElement('button');
+    b.textContent = text; b.dataset.val = val;
+    if (on) b.className = 'on';
+    pick.append(b);
+  }
+
+  const chipItems = state.mode === 'asset'
+    ? D.windows.map(w => [w, `${w} 日`, winColor(w), state.windows.includes(w)])
+    : syms.map(s => [s, s, D.stocks[s].color, state.assets.includes(s)]);
+  const onCount = chipItems.filter(c => c[3]).length;
+  for (const [val, text, tone, on] of chipItems) {
+    const lab = document.createElement('label');
+    // 取消到最后一个时锁定，避免图表空白
+    const locked = on && onCount === 1;
+    lab.className = `chip sm ${on ? 'on' : ''} ${locked ? 'locked' : ''}`;
+    lab.style.setProperty('--tone', tone);
+    const inp = document.createElement('input');
+    inp.type = 'checkbox'; inp.checked = on; inp.disabled = locked; inp.dataset.val = val;
+    const box = document.createElement('span'); box.className = 'box';
+    lab.append(inp, box, text);
+    chips.append(lab);
+  }
+}
+
+/* ---------------- 图表 ---------------- */
+
+function currentSeries() {
+  if (state.mode === 'asset') {
+    return D.windows.filter(w => state.windows.includes(w)).map(w => ({
+      name: `${w} 日`, color: winColor(w), data: pairs(state.asset, w),
+    }));
+  }
+  return Object.keys(D.stocks).filter(s => state.assets.includes(s)).map(s => ({
+    name: s, color: D.stocks[s].color, data: pairs(s, state.window),
+  }));
+}
+
+function renderChart() {
+  if (!charts.main) {
+    const el = document.getElementById('chart');
+    charts.main = echarts.init(el, null, { renderer: 'canvas' });
+    new ResizeObserver(() => charts.main.resize()).observe(el);
+  }
+  const series = currentSeries();
+  const firsts = series.filter(s => s.data.length).map(s => s.data[0][0]).sort();
+  const from = rangeStart();
+  const xmin = from && firsts[0] && from > firsts[0] ? from : firsts[0];
+
+  charts.main.setOption({
+    ...baseOption(),
+    title: {
+      text: state.mode === 'asset'
+        ? `${state.asset}（${D.stocks[state.asset].name_cn}）不同窗口的滚动 β`
+        : `各股票 ${state.window} 日滚动 β`,
+      left: 12, top: 8, textStyle: { color: '#d6dae5', fontSize: 13, fontWeight: 600 },
+    },
+    legend: { ...baseOption().legend, top: 8, left: 'right', right: 16 },
+    grid: { left: 52, right: 56, top: 48, bottom: 64 },
+    xAxis: {
+      type: 'time', min: xmin, max: D.as_of,
+      axisLine: { lineStyle: { color: AXIS } }, axisTick: { show: false },
+      axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', scale: true,
+      axisLabel: { color: LABEL, fontSize: 11, formatter: v => v.toFixed(1) },
+      splitLine: { lineStyle: { color: GRID_LINE } },
+    },
+    dataZoom: zoomCfg(0, [0]),
+    tooltip: {
+      ...tooltipBase,
+      axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      formatter: (ps) => {
+        if (!ps.length) return '';
+        const date = echarts.time.format(ps[0].value[0], '{yyyy}-{MM}-{dd}', false);
+        const rows = ps.slice().sort((a, b) => b.value[1] - a.value[1]).map(p =>
+          `<tr><td style="padding-right:14px"><span style="display:inline-block;width:12px;height:2px;` +
+          `background:${p.color};vertical-align:middle;margin-right:7px"></span>${p.seriesName}</td>` +
+          `<td style="text-align:right;font-weight:600">${p.value[1].toFixed(3)}</td></tr>`).join('');
+        return `<div style="font-weight:600;margin-bottom:6px">${date}</div>` +
+          `<table style="font-variant-numeric:tabular-nums;border-spacing:0">${rows}</table>`;
+      },
+    },
+    series: series.map((s, i) => ({
+      name: s.name, type: 'line', data: s.data, showSymbol: false, sampling: 'lttb',
+      lineStyle: { width: 1.8, color: s.color }, itemStyle: { color: s.color },
+      emphasis: { focus: 'series' },
+      endLabel: { show: true, formatter: s.name, color: LABEL, fontSize: 11 },
+      labelLayout: { moveOverlap: 'shiftY' },
+      markLine: i === 0 ? {
+        silent: true, symbol: 'none', data: [{ yAxis: 1 }],
+        lineStyle: { color: '#4a5266', type: 'dashed', width: 1 },
+        label: { formatter: 'β = 1', color: FAINT, fontSize: 10, position: 'insideStartTop' },
+      } : undefined,
+    })),
+  }, { notMerge: true });
+}
+
+/* ---------------- 调度 ---------------- */
+
+const STORE_KEY = 'beta-view';
+
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* 存储不可用时忽略 */ }
+}
+
+function restore() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    if (saved) Object.assign(state, saved);
+  } catch (e) { /* 忽略 */ }
+  // 配置里删掉的股票或窗口不要带回来
+  const syms = Object.keys(D.stocks);
+  if (!syms.includes(state.asset)) state.asset = syms[0];
+  if (!D.windows.includes(state.window)) state.window = D.windows[Math.min(1, D.windows.length - 1)];
+  state.windows = (state.windows || D.windows).filter(w => D.windows.includes(w));
+  state.assets = (state.assets || syms).filter(s => syms.includes(s));
+  if (!state.windows.length) state.windows = [...D.windows];
+  if (!state.assets.length) state.assets = [...syms];
+}
+
+function update() {
+  renderControls();
+  renderChart();
+  renderInsight();
+  save();
+}
+
+(async function boot() {
+  markNav();
+  D = await get(dataUrl.beta());
+  // JSON 的键是字符串，窗口统一转回数字
+  D.windows = D.windows.map(Number);
+  restore();
+
+  document.getElementById('stamp').textContent =
+    `数据截至 ${D.as_of} · 基准 ${D.benchmark}-USD · 每日更新`;
+
+  renderTable();
+
+  document.getElementById('modeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { state.mode = b.dataset.mode; update(); }
+  });
+  document.getElementById('rangeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { state.range = b.dataset.range; update(); }
+  });
+  document.getElementById('pickSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (state.mode === 'asset') state.asset = b.dataset.val;
+    else state.window = Number(b.dataset.val);
+    update();
+  });
+  document.getElementById('chips').addEventListener('change', (e) => {
+    const v = e.target.dataset.val;
+    if (v == null) return;
+    if (state.mode === 'asset') {
+      const w = Number(v);
+      state.windows = e.target.checked
+        ? D.windows.filter(x => x === w || state.windows.includes(x))
+        : state.windows.filter(x => x !== w);
+    } else {
+      const order = Object.keys(D.stocks);
+      state.assets = e.target.checked
+        ? order.filter(x => x === v || state.assets.includes(x))
+        : state.assets.filter(x => x !== v);
+    }
+    update();
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>

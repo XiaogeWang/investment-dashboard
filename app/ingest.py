@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 
 import yfinance as yf
 
-from . import db, macro
-from .config import ASSETS, CMC_API_KEY, CMC_BASE_URL, MACRO
+from . import beta, db, macro
+from .config import ASSETS, BETA, CMC_API_KEY, CMC_BASE_URL, MACRO
 from .supply import SUPPLY_FN
 
 log = logging.getLogger("ingest")
@@ -112,6 +112,21 @@ def run(full: bool = False) -> int:
             with db.connect() as conn:
                 db.log_ingest(conn, run_at, f"macro:{key}", "error", 0, str(e)[:500])
 
+    # 算 Beta 用的股票复权收盘价。和宏观一样每次全量覆盖：拆股、分红会回溯调整历史复权价。
+    for symbol in BETA["stocks"]:
+        try:
+            rows = beta.fetch_equity(symbol)
+            with db.connect() as conn:
+                n = db.upsert_equity(conn, rows)
+                db.log_ingest(conn, run_at, f"equity:{symbol}", "ok", n,
+                              f"{rows[0]['date']}..{rows[-1]['date']}")
+            log.info("%s: 写入 %d 行 (%s..%s)", symbol, n, rows[0]["date"], rows[-1]["date"])
+        except Exception as e:
+            failures += 1
+            log.error("%s 抓取失败: %s", symbol, e)
+            with db.connect() as conn:
+                db.log_ingest(conn, run_at, f"equity:{symbol}", "error", 0, str(e)[:500])
+
     try:
         snap = fetch_cmc_snapshot()
         if snap:
@@ -132,7 +147,7 @@ def run(full: bool = False) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="抓取 BTC / 黄金日线并换算市值")
+    parser = argparse.ArgumentParser(description="抓取 BTC / 黄金日线并换算市值，以及宏观指标和算 Beta 用的股票收盘价")
     parser.add_argument("--full", action="store_true", help="回填全部历史")
     args = parser.parse_args()
     logging.basicConfig(

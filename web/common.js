@@ -1,4 +1,4 @@
-/* 两个页面共用的工具函数与图表主题。 */
+/* 各页面共用的工具函数与图表主题。 */
 
 const UP = '#26a69a', DOWN = '#ef5350', ACCENT = '#4c8dff';
 const AXIS = '#2b3245', GRID_LINE = '#1c2131', LABEL = '#7d8598', FAINT = '#565e72';
@@ -11,6 +11,7 @@ const dataUrl = {
   ratio: (base, quote, period) => `data/ratio/${base}_${quote}_${period}.json`,
   macro: (series, period) => `data/macro/${series}_${period}.json`,
   panel: () => 'data/panel_month.json',
+  beta: () => 'data/beta.json',
 };
 
 async function get(url) {

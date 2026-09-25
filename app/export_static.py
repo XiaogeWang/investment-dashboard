@@ -9,6 +9,7 @@
     data/klines/{asset}_{period}_{value}.json    value ∈ cap/price/per_m2/per_debt
     data/ratio/{base}_{quote}_{period}.json      资产两两组合，两个方向都生成
     data/macro/{series}_{period}.json            宏观单值序列
+    data/beta.json                               加密股相对 BTC 的滚动 Beta
 
 每天抓取完新数据后跑一遍这个脚本，重新生成的文件连同 web/ 一起提交到仓库，
 GitHub Actions 里就是「抓取 → 导出 → git commit & push」三步。
@@ -19,7 +20,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from . import db
+from . import beta, db
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
 from .analysis import build_panel
@@ -201,6 +202,11 @@ def export_panel(conn) -> None:
     _write(OUT_DIR / "panel_month.json", build_panel(conn))
 
 
+def export_beta(conn) -> None:
+    """滚动 Beta 一次性全部导出（约 400KB），前端切换资产/窗口时不用再发请求。"""
+    _write(OUT_DIR / "beta.json", beta.build(conn))
+
+
 def run() -> None:
     with db.connect() as conn:
         export_meta(conn)
@@ -209,6 +215,7 @@ def run() -> None:
         export_ratio(conn)
         export_macro(conn)
         export_panel(conn)
+        export_beta(conn)
 
 
 if __name__ == "__main__":

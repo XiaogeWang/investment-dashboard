@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import beta, db
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
 from .analysis import build_panel
@@ -130,6 +130,13 @@ def panel():
     """相关性分析用的对齐月度面板。前端在这一份数据上算相关性，见 analysis.py 的说明。"""
     with db.connect() as conn:
         return build_panel(conn)
+
+
+@app.get("/api/beta")
+def beta_series():
+    """加密股相对 BTC 的滚动 Beta，和 data/beta.json 同构。"""
+    with db.connect() as conn:
+        return beta.build(conn)
 
 
 @app.get("/api/summary")

@@ -216,6 +216,26 @@ MACRO = {
     },
 }
 
+# 加密股相对 BTC 的滚动 Beta（beta.html）。
+# 股票只用复权收盘价，不算市值，所以不进 ASSETS，单独存在 equity_close 表里。
+# 起算日取 floor 与上市日中较晚者：MSTR 1998 年就上市了，但 2020-08 才开始买 BTC，
+# 更早的数据和 BTC 没有关系，混进来只会把 Beta 拉低。
+BETA = {
+    "benchmark": "BTC",
+    "floor": "2020-09-01",
+    "windows": [30, 60, 120, 250],
+    "stocks": {
+        "MSTR": {"name_cn": "Strategy", "ticker": "MSTR", "listed": "1998-06-11",
+                 "color": "#3987e5", "note": "2020-08 起持续买入 BTC 的财库公司"},
+        "COIN": {"name_cn": "Coinbase", "ticker": "COIN", "listed": "2021-04-14",
+                 "color": "#d95926", "note": "美国最大的合规加密交易所"},
+        "HOOD": {"name_cn": "Robinhood", "ticker": "HOOD", "listed": "2021-07-29",
+                 "color": "#199e70", "note": "券商，加密交易只是业务的一部分"},
+        "CRCL": {"name_cn": "Circle", "ticker": "CRCL", "listed": "2025-06-05",
+                 "color": "#c98500", "note": "USDC 发行方，收入主要来自储备利息"},
+    },
+}
+
 # 宏观页各视图用到的分组
 MACRO_GROUPS = {
     "rate": "利率",

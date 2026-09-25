@@ -42,6 +42,17 @@ CREATE TABLE IF NOT EXISTS macro_series (
     PRIMARY KEY (series, date)
 );
 
+-- 股票复权收盘价，只用于算相对 BTC 的 Beta。拆股/分红会回溯调整历史复权价，
+-- 所以每次都全量重抓覆盖。
+CREATE TABLE IF NOT EXISTS equity_close (
+    symbol     TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    close      REAL NOT NULL,
+    source     TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (symbol, date)
+);
+
 -- CMC 官方口径快照，用于校验自算供应量的偏差；无 API Key 时该表为空
 CREATE TABLE IF NOT EXISTS cmc_snapshot (
     date                TEXT PRIMARY KEY,
@@ -114,6 +125,29 @@ def fetch_macro(conn, series: str, start: str | None = None, end: str | None = N
     if end:
         sql += " AND date <= ?"
         params.append(end)
+    sql += " ORDER BY date"
+    return conn.execute(sql, params).fetchall()
+
+
+def upsert_equity(conn, rows: list[dict]) -> int:
+    conn.executemany(
+        """
+        INSERT INTO equity_close (symbol, date, close, source, updated_at)
+        VALUES (:symbol, :date, :close, :source, :updated_at)
+        ON CONFLICT(symbol, date) DO UPDATE SET
+            close=excluded.close, source=excluded.source, updated_at=excluded.updated_at
+        """,
+        rows,
+    )
+    return len(rows)
+
+
+def fetch_equity(conn, symbol: str, start: str | None = None):
+    sql = "SELECT date, close FROM equity_close WHERE symbol = ?"
+    params: list = [symbol]
+    if start:
+        sql += " AND date >= ?"
+        params.append(start)
     sql += " ORDER BY date"
     return conn.execute(sql, params).fetchall()
 
