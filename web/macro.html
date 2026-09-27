@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>宏观相关性 · 利率 / 债务 / 股指</title>
+<title>宏观相关性 · 利率 / 债务 / 股指 / 波动率</title>
 <link rel="stylesheet" href="app.css">
 <script src="vendor/echarts.min.js"></script>
 <script src="common.js"></script>
@@ -19,7 +19,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>宏观相关性<span class="sub">利率 · 债务 · 股指</span></h1>
+    <h1>宏观相关性<span class="sub">利率 · 债务 · 股指 · 波动率</span></h1>
     <nav class="nav">
       <a href="index.html">资产市值</a>
       <a href="macro.html">宏观相关性</a>
@@ -31,6 +31,7 @@
   <div class="seg" id="viewSeg" style="margin-bottom:14px">
     <button data-view="rates" class="on">利率全景</button>
     <button data-view="debt">债务全景</button>
+    <button data-view="vol">波动率全景</button>
     <button data-view="scatter">散点关系</button>
     <button data-view="rolling">滚动相关性</button>
     <button data-view="matrix">相关性矩阵</button>
@@ -75,6 +76,35 @@
       联邦债务总额（Total Public Debt Outstanding）来自美国财政部 <code>debt_to_penny</code>，每工作日更新。
       副图是同比增速——绝对规模一路向上没什么信息量，增速的拐点才是。
       <br>想加「债务 / GDP」和「联邦利息支出」这两条线（都已验证可拉取，季频）随时可以扩。
+    </div>
+  </section>
+
+  <!-- 视图：波动率全景 -->
+  <section data-panel="vol" hidden>
+    <div class="readout num" id="volReadout"></div>
+    <div class="toolbar">
+      <div class="chips" id="volChips"></div>
+      <div class="divider"></div>
+      <div class="seg" id="volModeSeg">
+        <button data-mode="level" class="on">数值</button>
+        <button data-mode="rank">滚动 1 年分位</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="seg" id="volPeriodSeg">
+        <button data-period="day" class="on">日</button>
+        <button data-period="week">周</button>
+        <button data-period="month">月</button>
+      </div>
+    </div>
+    <div class="chart-panel"><div id="chartVol" class="chart tall"></div></div>
+    <div class="foot">
+      四个都是期权市场隐含的<b>未来 30 天年化波动率</b>：VIX（标普 500）、VXN（纳斯达克 100）、DVOL（BTC，Deribit 编制）
+      单位是百分比点数，VIX = 20 约等于预期未来一个月涨跌 ±5.7%（20 × √(30/365)）。
+      <b>MOVE 单位是基点</b>，衡量美债收益率的波动，数值天然在 100 上下，默认不勾选，免得把另外三条压扁。
+      <br><b>滚动 1 年分位</b>：每个时点的值在它自己过去一年里排第几（日线 252 个交易日、周线 52 周、月线 12 个月），
+      把量级不同的指数放到同一把尺子上比，看各个市场「此刻有多紧张」。只用过去的数据，不含未来信息。
+      <br>VIX 的参考线：20 附近是长期均值，30 以上通常视为恐慌。这四个指数也已加入散点关系、滚动相关性和相关性矩阵，
+      可以直接看 VIX 与纳斯达克、DVOL 与 BTC 市值之类的关系。
     </div>
   </section>
 
@@ -157,6 +187,7 @@ const state = {
   inversion: true,
   debtPeriod: 'month',
   debtYoY: true, debtLog: false,
+  vol: ['VIX', 'VXN', 'DVOL'], volMode: 'level', volPeriod: 'day',
   scatterX: 'DGS10', scatterY: 'IXIC', scatterTrans: 'yoy', scatterFit: true,
   rollX: 'DGS10', rollY: 'IXIC', rollTrans: 'mom', rollWin: 36,
   matrixTrans: 'yoy', matrixMinN: 60,
@@ -246,7 +277,8 @@ function seriesFor(key, mode) {
   if (mode === 'level') {
     fmt = (v) => fmtMacro(v, s.unit);
   } else if (s.diff_mode === 'diff') {
-    fmt = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + ' pp';  // 百分点
+    const unit = s.unit === 'vol' ? ' 点' : ' pp';  // 波动率指数是点数，利率是百分点
+    fmt = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) + unit;
   } else {
     fmt = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
   }
@@ -640,13 +672,141 @@ function renderMatrix() {
   }, true);
 }
 
+/* ---------------- 视图：波动率全景 ---------------- */
+
+const VOL_KEYS = () => Object.keys(META.macro).filter(k => META.macro[k].group === 'vol');
+const VOL_WIN = { day: 252, week: 52, month: 12 };
+
+/** 滚动分位：每个点在它自己之前 win 个非空观测里排第几，0~1。只看过去，不含未来信息。 */
+function rollingRank(values, win) {
+  const out = new Array(values.length).fill(null);
+  const hist = [];
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v == null) continue;
+    if (hist.length >= Math.floor(win * 0.8)) {
+      out[i] = hist.filter(h => h < v).length / hist.length;
+    }
+    hist.push(v);
+    if (hist.length > win) hist.shift();
+  }
+  return out;
+}
+
+function renderVolChips() {
+  const box = document.getElementById('volChips');
+  box.innerHTML = VOL_KEYS().map(k => {
+    const on = state.vol.includes(k);
+    const locked = on && state.vol.length === 1;
+    return `<label class="chip sm ${on ? 'on' : ''} ${locked ? 'locked' : ''}" style="--tone:${META.macro[k].color}"
+             title="${META.macro[k].note}">
+      <input type="checkbox" data-vol="${k}" ${on ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+      <span class="box"></span>${META.macro[k].short_cn}
+    </label>`;
+  }).join('');
+}
+
+/** 顶部读数：四个指数的最新值、观测日期、近 1 年分位。用日线算，和图表周期无关。 */
+async function renderVolReadout() {
+  const keys = VOL_KEYS();
+  const datas = await Promise.all(keys.map(k => get(dataUrl.macro(k, 'day'))));
+  const box = document.getElementById('volReadout');
+  box.replaceChildren();
+  keys.forEach((k, i) => {
+    const pts = datas[i].points.filter(p => p.v != null);
+    if (!pts.length) return;
+    const last = pts.at(-1);
+    const year = pts.slice(-253, -1).map(p => p.v);
+    const rank = year.length ? year.filter(v => v < last.v).length / year.length : null;
+    const item = document.createElement('div'); item.className = 'item';
+    const kk = document.createElement('span'); kk.className = 'k';
+    kk.textContent = `${META.macro[k].short_cn} · ${last.t}`;
+    const vv = document.createElement('span'); vv.className = 'v'; vv.textContent = last.v.toFixed(2);
+    const sub = document.createElement('span'); sub.className = 'v sm';
+    sub.textContent = rank == null ? '—' : `近 1 年 ${Math.round(rank * 100)}% 分位`;
+    item.append(kk, vv, sub);
+    box.append(item);
+  });
+  const note = document.createElement('span'); note.className = 'note';
+  note.textContent = '分位越高，说明该市场此刻相对过去一年越紧张。MOVE 单位是基点，不和另外三个比大小。';
+  box.append(note);
+}
+
+async function renderVol() {
+  const chart = ensureChart('vol');
+  showLoading(chart);
+  const keys = state.vol, period = state.volPeriod, rank = state.volMode === 'rank';
+  const datas = await Promise.all(keys.map(k => get(dataUrl.macro(k, period))));
+
+  const allKeys = [...new Set(datas.flatMap(d => d.points.map(p => p.t)))].sort();
+  const x = allKeys.map(t => labelOf(t, period));
+  const series = keys.map((k, i) => {
+    const m = Object.fromEntries(datas[i].points.map(p => [p.t, p.v]));
+    let vals = allKeys.map(t => m[t] ?? null);
+    if (rank) vals = rollingRank(vals, VOL_WIN[period]);
+    return {
+      name: META.macro[k].short_cn, type: 'line', data: vals,
+      showSymbol: false, connectNulls: true, sampling: 'lttb',
+      lineStyle: { width: 1.7, color: META.macro[k].color }, itemStyle: { color: META.macro[k].color },
+      endLabel: { show: true, formatter: META.macro[k].short_cn, color: LABEL, fontSize: 11 },
+      labelLayout: { moveOverlap: 'shiftY' },
+    };
+  });
+
+  // 参考线：数值模式下 VIX 的 20（长期均值附近）/ 30（恐慌），分位模式下的 50% / 90%
+  const lines = rank
+    ? [{ yAxis: 0.5, name: '中位' }, { yAxis: 0.9, name: '90% 分位' }]
+    : keys.includes('VIX') ? [{ yAxis: 20, name: 'VIX 20' }, { yAxis: 30, name: 'VIX 30' }] : [];
+  if (series.length && lines.length) {
+    series[0].markLine = {
+      silent: true, symbol: 'none', data: lines,
+      lineStyle: { color: '#4a5266', type: 'dashed', width: 1 },
+      label: { formatter: '{b}', color: FAINT, fontSize: 10, position: 'insideStartTop' },
+    };
+  }
+
+  chart.setOption({
+    ...baseOption(),
+    grid: { left: 58, right: 64, top: 46, bottom: 64 },
+    tooltip: {
+      ...tooltipBase,
+      axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      formatter: (ps) => {
+        const t = allKeys[ps[0].dataIndex];
+        let s = `<div style="font-weight:600;margin-bottom:6px">${labelOf(t, period)}</div>
+          <table style="font-variant-numeric:tabular-nums;border-spacing:0">`;
+        for (const p of ps) {
+          if (p.value == null) continue;
+          s += `<tr><td style="color:${p.color};padding-right:14px">${p.seriesName}</td>
+                <td style="text-align:right">${rank ? Math.round(p.value * 100) + '%' : p.value.toFixed(2)}</td></tr>`;
+        }
+        return s + '</table>';
+      },
+    },
+    xAxis: { type: 'category', data: x, axisLine: { lineStyle: { color: AXIS } },
+      axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+    yAxis: {
+      scale: !rank, min: rank ? 0 : null, max: rank ? 1 : null,
+      name: rank ? '滚动 1 年分位' : '隐含波动率', nameTextStyle: { color: FAINT, fontSize: 11, align: 'left' },
+      axisLabel: { color: LABEL, fontSize: 11, formatter: (v) => rank ? Math.round(v * 100) + '%' : v.toFixed(0) },
+      splitLine: { lineStyle: { color: GRID_LINE } }, axisLine: { show: false },
+    },
+    // 分位在 0~100% 之间来回摆，日线放全历史会糊成一片，默认只露出最近 3 年
+    dataZoom: zoomCfg(rank
+      ? Math.max(0, 100 - 100 * ({ day: 756, week: 156, month: 36 }[period]) / allKeys.length)
+      : (allKeys.length > 400 ? 80 : 0), [0]),
+    series,
+  }, true);
+  chart.hideLoading();
+}
+
 /* ---------------- 控件与调度 ---------------- */
 
-const RENDER = { rates: renderRates, debt: renderDebt, scatter: renderScatter,
+const RENDER = { rates: renderRates, debt: renderDebt, vol: renderVol, scatter: renderScatter,
                  rolling: renderRolling, matrix: renderMatrix };
 
 function ensureChart(view) {
-  const id = { rates: 'chartRates', debt: 'chartDebt', scatter: 'chartScatter',
+  const id = { rates: 'chartRates', debt: 'chartDebt', vol: 'chartVol', scatter: 'chartScatter',
                rolling: 'chartRolling', matrix: 'chartMatrix' }[view];
   if (!charts[view]) {
     const el = document.getElementById(id);
@@ -759,6 +919,21 @@ function renderRateChips() {
 
   bindSeg('ratePeriodSeg', 'period', 'ratePeriod', renderRates);
   bindSeg('debtPeriodSeg', 'period', 'debtPeriod', renderDebt);
+  bindSeg('volPeriodSeg', 'period', 'volPeriod', renderVol);
+  bindSeg('volModeSeg', 'mode', 'volMode', renderVol);
+
+  renderVolChips();
+  renderVolReadout();
+  document.getElementById('volChips').addEventListener('change', (e) => {
+    const k = e.target.dataset.vol;
+    if (!k) return;
+    const order = VOL_KEYS();
+    state.vol = e.target.checked
+      ? order.filter(x => x === k || state.vol.includes(x))
+      : state.vol.filter(x => x !== k);
+    renderVolChips();
+    renderVol();
+  });
 
   document.getElementById('showInversion').addEventListener('change', (e) => {
     state.inversion = e.target.checked; renderRates();

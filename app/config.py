@@ -214,6 +214,63 @@ MACRO = {
         "group": "equity",
         "note": "做纳斯达克的对照，1927 年至今",
     },
+
+    # ---- 隐含波动率 ----
+    # 都是「年化波动率点数」：VIX = 20 表示市场预期标普未来 30 天年化波动 20%。
+    # MOVE 例外，单位是基点（美债收益率的年化波动），数值天然在 100 上下，不能和另外三个直接比大小。
+    # unit = "vol"：做相关性时和利率一样用差分（见 analysis.diff_mode）。
+    "VIX": {
+        "name_cn": "VIX 标普 500 波动率",
+        "short_cn": "VIX",
+        "source": "yahoo",
+        "series_id": "^VIX",
+        "scale": 1.0,
+        "unit": "vol",
+        "freq": "daily",
+        "color": "#3987e5",
+        "denominator": False,
+        "group": "vol",
+        "note": "标普 500 未来 30 天隐含波动率，俗称恐慌指数，1990 年至今",
+    },
+    "VXN": {
+        "name_cn": "VXN 纳斯达克 100 波动率",
+        "short_cn": "VXN",
+        "source": "yahoo",
+        "series_id": "^VXN",
+        "scale": 1.0,
+        "unit": "vol",
+        "freq": "daily",
+        "color": "#d95926",
+        "denominator": False,
+        "group": "vol",
+        "note": "纳斯达克 100 未来 30 天隐含波动率，2001 年至今",
+    },
+    "MOVE": {
+        "name_cn": "MOVE 美债波动率",
+        "short_cn": "MOVE",
+        "source": "yahoo",
+        "series_id": "^MOVE",
+        "scale": 1.0,
+        "unit": "vol",
+        "freq": "daily",
+        "color": "#199e70",
+        "denominator": False,
+        "group": "vol",
+        "note": "美债 1 个月期权隐含的收益率波动，单位是基点，俗称债市的 VIX，2002 年至今",
+    },
+    "DVOL": {
+        "name_cn": "DVOL 比特币波动率",
+        "short_cn": "DVOL",
+        "source": "deribit",
+        "series_id": "BTC",
+        "scale": 1.0,
+        "unit": "vol",
+        "freq": "daily",
+        "color": "#c98500",
+        "denominator": False,
+        "group": "vol",
+        "note": "Deribit 编制的 BTC 未来 30 天隐含波动率，俗称加密市场的 VIX，2021-03 起",
+    },
 }
 
 # 加密股相对 BTC 的滚动 Beta（beta.html）。
@@ -243,6 +300,7 @@ MACRO_GROUPS = {
     "equity": "股指",
     "debt": "债务",
     "money": "货币",
+    "vol": "波动率",
 }
 
 # Strategy 官网图表页用的公开接口，无需鉴权，返回 MSTR / BTC 等 30 多个标的的日度序列。
@@ -250,6 +308,7 @@ MACRO_GROUPS = {
 STRATEGY_TIMESERIES_URL = "https://api.strategy.com/btc/timeSeries"
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
+DERIBIT_DVOL_URL = "https://www.deribit.com/api/v2/public/get_volatility_index_data"
 TREASURY_DEBT_URL = (
     "https://api.fiscaldata.treasury.gov/services/api/fiscal_service"
     "/v2/accounting/od/debt_to_penny"

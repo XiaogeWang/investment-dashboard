@@ -53,15 +53,17 @@ const fmtRatioAxis = (v) => {
   return p.toFixed(a >= 10 ? 0 : a >= 1 ? 1 : 2) + '%';
 };
 
-// 宏观指标单位不统一：M2/债务是美元，利率是百分数，股指是点位
+// 宏观指标单位不统一：M2/债务是美元，利率是百分数，股指是点位，波动率指数是年化波动点数
 const fmtMacro = (v, unit) => {
   if (v == null || !isFinite(v)) return '—';
   if (unit === 'percent') return v.toFixed(2) + '%';
+  if (unit === 'vol') return v.toFixed(2);
   if (unit === 'index') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
   return fmtUSD(v);
 };
 const fmtMacroAxis = (v, unit) => {
   if (unit === 'percent') return v.toFixed(1) + '%';
+  if (unit === 'vol') return v.toFixed(0);
   if (unit === 'index') return fmtAxis(v);
   return fmtAxis(v);
 };

@@ -20,6 +20,7 @@
 变化量怎么取又要看单位：
 - 利率类（percent）：用**差分**。2% → 4% 是 +2 个百分点；用百分比变化不但语义不对，
   遇到期限利差这种会跨零的序列还会直接爆炸。
+- 波动率指数（vol）：同样用**差分**，理由见 diff_mode。
 - 水平类（USD / index）：用**百分比变化**。
 """
 
@@ -33,8 +34,12 @@ PANEL_PERIOD = "month"
 
 
 def diff_mode(unit: str) -> str:
-    """percent 用差分，其余用百分比变化。见模块开头的说明。"""
-    return "diff" if unit == "percent" else "pct"
+    """percent 和 vol 用差分，其余用百分比变化。见模块开头的说明。
+
+    波动率指数（vol）本身就是年化波动的「点数」，和利率一样看点数变化更自然：
+    VIX 从 12 到 24 和从 40 到 52 都是 +12 点的恐慌升温，用百分比变化会把前者算成后者的 3.3 倍。
+    """
+    return "diff" if unit in ("percent", "vol") else "pct"
 
 
 def build_panel(conn) -> dict:

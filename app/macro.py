@@ -1,10 +1,12 @@
 """抓取宏观指标序列。
 
-两个数据源都不需要 API Key：
+数据源都不需要 API Key：
 
 - FRED 的 CSV 端点（fredgraph.csv?id=XXX）能直接下全历史。官方 REST API 要注册申请
   key，但这个 CSV 端点不用，正好保持整个项目零密钥、不必往 CI 里塞 secret。
 - 美国财政部 FiscalData 的 debt_to_penny，公开无鉴权，1993 年至今每工作日一条。
+- Yahoo Finance：股指和 VIX / VXN / MOVE 这类只取收盘价的序列。
+- Deribit 公开接口：BTC 的隐含波动率指数 DVOL。
 """
 
 import csv
@@ -16,7 +18,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .config import FRED_CSV_URL, MACRO, TREASURY_DEBT_URL
+from .config import DERIBIT_DVOL_URL, FRED_CSV_URL, MACRO, TREASURY_DEBT_URL
 
 log = logging.getLogger("macro")
 
@@ -108,22 +110,67 @@ def fetch_treasury_debt() -> list[tuple[str, float]]:
     return out
 
 
+YAHOO_RETRIES = 4
+YAHOO_BACKOFF = 8
+
+
 def fetch_yahoo(ticker: str) -> list[tuple[str, float]]:
-    """股指等只取收盘价的单值序列。指数点位不是市值，所以走宏观序列而不是 ASSETS。"""
+    """股指等只取收盘价的单值序列。指数点位不是市值，所以走宏观序列而不是 ASSETS。
+
+    Yahoo 限流时直接抛 Too Many Requests。每日任务里 Yahoo 请求有十来个，
+    这里带退避重试，免得某一个被限流就把整个任务拖垮。
+    """
     import yfinance as yf
 
-    df = yf.Ticker(ticker).history(period="max", interval="1d", auto_adjust=False)
-    if df.empty:
-        raise RuntimeError(f"{ticker} 未返回任何数据")
+    for attempt in range(1, YAHOO_RETRIES + 1):
+        try:
+            df = yf.Ticker(ticker).history(period="max", interval="1d", auto_adjust=False)
+            if df.empty:
+                raise RuntimeError(f"{ticker} 未返回任何数据")
+            break
+        except Exception as e:
+            if attempt == YAHOO_RETRIES:
+                raise
+            delay = YAHOO_BACKOFF * attempt + random.uniform(0, 2)
+            log.warning("%s 抓取失败 (%s/%s): %s，%.1fs 后重试", ticker, attempt, YAHOO_RETRIES, e, delay)
+            time.sleep(delay)
     out = []
     for ts, row in df.iterrows():
         c = float(row["Close"])
         if c != c or c <= 0:  # NaN 或非正
             continue
-        out.append((ts.date().isoformat(), c))
+        out.append((ts.date().isoformat(), round(c, 4)))
     if not out:
         raise RuntimeError(f"{ticker} 没有解析出任何收盘价")
     return out
+
+
+def fetch_deribit_dvol(currency: str) -> list[tuple[str, float]]:
+    """Deribit 的隐含波动率指数（DVOL），日线收盘值。
+
+    接口单次最多返回 1000 根，从 end_timestamp 往前取；响应里的 continuation 是下一页的
+    end_timestamp，为空说明已经到头。DVOL 从 2021-03 开始编制，全量约 2000 根，翻两三页。
+    """
+    end = int(time.time() * 1000)
+    out: dict[str, float] = {}
+    for _ in range(20):  # 兜底，防止接口行为变化导致死循环
+        resp = _get(DERIBIT_DVOL_URL, {
+            "currency": currency, "resolution": "1D",
+            "start_timestamp": 0, "end_timestamp": end,
+        })
+        result = resp.json().get("result") or {}
+        for ts, _o, _h, _l, close in result.get("data") or []:
+            if close is None or close <= 0:
+                continue
+            d = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).date().isoformat()
+            out[d] = float(close)
+        nxt = result.get("continuation")
+        if not nxt or nxt >= end:
+            break
+        end = nxt
+    if not out:
+        raise RuntimeError(f"Deribit DVOL {currency} 没有返回任何数据")
+    return sorted(out.items())
 
 
 def fetch_series(key: str) -> list[dict]:
@@ -139,6 +186,9 @@ def fetch_series(key: str) -> list[dict]:
     elif source == "yahoo":
         raw = fetch_yahoo(meta["series_id"])
         src = f"yahoo:{meta['series_id']}"
+    elif source == "deribit":
+        raw = fetch_deribit_dvol(meta["series_id"])
+        src = f"deribit:dvol:{meta['series_id']}"
     else:
         raise ValueError(f"未知数据源: {source}")
 
