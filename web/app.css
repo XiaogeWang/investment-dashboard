@@ -32,11 +32,12 @@ h1 .sub { color: var(--text-faint); font-weight: 400; margin-left: 10px; font-si
 .stamp { margin-left: auto; color: var(--text-faint); font-size: 12px; }
 
 /* 顶部页面导航 */
-.nav { display: inline-flex; gap: 3px; background: var(--panel); border: 1px solid var(--border);
+.nav { display: inline-flex; gap: 3px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--border);
        border-radius: 9px; padding: 3px; }
 .nav a {
   color: var(--text-dim); text-decoration: none; font-size: 13px;
   padding: 6px 14px; border-radius: 6px; transition: background .15s, color .15s;
+  white-space: nowrap;
 }
 .nav a:hover { color: var(--text); }
 .nav a.on { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; }

@@ -7,6 +7,13 @@
   Strategy 从 2024-12-31 才开始公布，但它把债务和优先股算了进去，
   在 2025 年大量发行优先股之后，比市值口径更能反映真实溢价。
 
+由 EV 口径还能反推出三条派生序列（决策页用）：
+
+- 净负债 = EV 口径 × BTC 净值 − 市值，即债务 + 优先股 − 现金
+- 净溢价 = 市值 / (BTC 净值 − 净负债)：普通股相对「扣掉排在前面的负债之后、归普通股的 BTC」的倍数
+- 杠杆   = BTC 净值 / (BTC 净值 − 净负债)：BTC 涨跌 1%，归普通股的净资产涨跌多少。
+  和接口里的 amplification（2026-06 起才有）口径一致，自己算是为了历史更长
+
 数据来自 Strategy 官网图表页用的公开接口（STRATEGY_TIMESERIES_URL），不是文档化的 API。
 金额单位是「百万美元」，原样保存。
 """
@@ -37,6 +44,10 @@ def fetch() -> list[dict]:
             "date": r["date"][:10], "price": r.get("price"),
             "market_cap": float(mc), "btc_nav": float(nav), "btc_holdings": float(btc),
             "mnav_ev": r.get("mNavEntVal"), "mnav": r.get("mNav"),
+            # 以下几项 2025 年起才陆续有：每股 BTC（聪，官方按稀释后股数）、
+            # 美元现金储备、年化优先股股息 + 利息、现金能覆盖几年股息和利息
+            "sats_per_share": r.get("satsPerShare"), "usd_reserve": r.get("usdReserve"),
+            "ann_dividends": r.get("annDividends"), "usd_duration_yrs": r.get("usdDurationYrs"),
             "source": "strategy:timeSeries", "updated_at": now,
         })
     if not rows:
@@ -45,22 +56,42 @@ def fetch() -> list[dict]:
     return rows
 
 
-def _r4(v) -> float | None:
-    return None if v is None else round(float(v), 4)
+def _r(v, nd=4) -> float | None:
+    return None if v is None else round(float(v), nd)
+
+
+def _derived(r) -> tuple[float | None, float | None, float | None]:
+    """(净负债, 净溢价, 杠杆)。没有 EV 口径，或负债已经吃掉全部 BTC 时为 None。"""
+    if r["mnav_ev"] is None:
+        return None, None, None
+    liab = r["mnav_ev"] * r["btc_nav"] - r["market_cap"]
+    net = r["btc_nav"] - liab
+    if net <= 0:
+        return liab, None, None
+    return liab, r["market_cap"] / net, r["btc_nav"] / net
 
 
 def build(conn) -> dict | None:
     rows = db.fetch_mstr_nav(conn)
     if not rows:
         return None
+    derived = [_derived(r) for r in rows]
     return {
         "as_of": rows[-1]["date"],
         "unit": "USD million",
         "dates": [r["date"] for r in rows],
-        "mnav_mc": [_r4(r["market_cap"] / r["btc_nav"]) for r in rows],
-        "mnav_ev": [_r4(r["mnav_ev"]) for r in rows],
-        "mnav": [_r4(r["mnav"]) for r in rows],
+        "price": [_r(r["price"], 2) for r in rows],
+        "mnav_mc": [_r(r["market_cap"] / r["btc_nav"]) for r in rows],
+        "mnav_ev": [_r(r["mnav_ev"]) for r in rows],
+        "mnav": [_r(r["mnav"]) for r in rows],
         "btc_holdings": [int(r["btc_holdings"]) for r in rows],
         "market_cap": [round(r["market_cap"]) for r in rows],
         "btc_nav": [round(r["btc_nav"]) for r in rows],
+        "net_liab": [_r(d[0], 0) for d in derived],
+        "prem_net": [_r(d[1]) for d in derived],
+        "leverage": [_r(d[2]) for d in derived],
+        "sats_per_share": [_r(r["sats_per_share"], 0) for r in rows],
+        "usd_reserve": [_r(r["usd_reserve"], 0) for r in rows],
+        "ann_dividends": [_r(r["ann_dividends"], 0) for r in rows],
+        "usd_duration_yrs": [_r(r["usd_duration_yrs"], 2) for r in rows],
     }

@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MSTR 溢价 · mNAV</title>
+<link rel="stylesheet" href="app.css">
+<script src="vendor/echarts.min.js"></script>
+<script src="common.js"></script>
+<style>
+  /* 本页专用：结论条、档位标尺、情景矩阵、检查清单 */
+  .t-ok { --tone: var(--up); }
+  .t-mid { --tone: var(--accent); }
+  .t-warn { --tone: #d8a657; }
+  .t-risk { --tone: var(--down); }
+
+  .verdict {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px 20px; margin-bottom: 18px; position: relative; overflow: hidden;
+  }
+  .verdict::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--tone); }
+  .verdict .zone { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .verdict .zone b { font-size: 22px; font-weight: 600; color: var(--tone); }
+  .verdict .zone span { color: var(--text-dim); font-size: 13px; }
+  .verdict p { margin: 0 0 6px; color: var(--text-dim); line-height: 1.7; }
+  .verdict p b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .ladder { position: relative; height: 54px; margin-top: 16px; }
+  .ladder .bar { position: absolute; left: 0; right: 0; top: 18px; height: 10px; border-radius: 5px; overflow: hidden; display: flex; }
+  .ladder .seg { height: 100%; background: var(--tone); opacity: .35; }
+  .ladder .seg.cur { opacity: .9; }
+  .ladder .zl { position: absolute; top: 0; font-size: 11px; color: var(--text-faint); transform: translateX(-50%); white-space: nowrap; }
+  .ladder .tick { position: absolute; top: 34px; font-size: 10px; color: var(--text-faint); transform: translateX(-50%); }
+  .ladder .mark { position: absolute; top: 12px; width: 2px; height: 22px; background: var(--text); transform: translateX(-1px); }
+  .ladder .mark.range { background: var(--text-faint); height: 14px; top: 16px; }
+  .ladder .mark i { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); font-style: normal;
+    font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; }
+
+  .block-title {
+    font-size: 16px; font-weight: 600; margin: 30px 0 12px;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  .block-title span { color: var(--text-faint); font-weight: 400; font-size: 12.5px; }
+  .card .value.sm { font-size: 24px; }
+  .card .meta b { color: var(--text-dim); font-weight: 600; }
+
+  .charts2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; }
+  .chart.prem, .chart.fly { height: 400px; }
+  .chart.hist { height: 420px; }
+  .insight { margin-top: 12px; }
+  .insight h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .insight h3 span { color: var(--text-faint); font-weight: 400; font-size: 12px; }
+
+  .sim { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 14px; }
+  .sim-panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .slider { display: grid; grid-template-columns: 116px minmax(0, 1fr) 64px; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .slider label { color: var(--text-dim); font-size: 13px; }
+  .slider input { width: 100%; accent-color: var(--accent); }
+  .slider output { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sim-out { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 6px; }
+  .sim-out div { background: var(--panel-2); border-radius: 9px; padding: 10px 12px; }
+  .sim-out span { display: block; color: var(--text-faint); font-size: 11px; margin-bottom: 4px; }
+  .sim-out b { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .sim-note { color: var(--text-faint); font-size: 11.5px; line-height: 1.6; margin: 12px 0 0; }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .presets button {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim); cursor: pointer;
+    padding: 5px 10px; border-radius: 7px; font-size: 12px; font-family: inherit;
+  }
+  .presets button:hover { color: var(--text); border-color: #2f3650; }
+
+  .matrix-wrap { overflow-x: auto; }
+  .matrix { width: 100%; min-width: 520px; border-collapse: separate; border-spacing: 3px; font-size: 12.5px; }
+  .matrix th { color: var(--text-faint); font-weight: 500; font-size: 11px; padding: 4px 6px; text-align: center; }
+  .matrix th.row { text-align: right; padding-right: 10px; white-space: nowrap; }
+  .matrix td { text-align: center; padding: 8px 4px; border-radius: 5px; font-variant-numeric: tabular-nums; color: var(--text); }
+  .matrix td.btc { background: transparent; color: var(--text-dim); border: 1px dashed var(--border); }
+  .matrix td.now { outline: 1.5px solid var(--text); outline-offset: -1.5px; font-weight: 600; }
+  .matrix th.now { color: var(--text); }
+  .matrix caption { caption-side: bottom; text-align: left; color: var(--text-faint); font-size: 11.5px; padding-top: 8px; line-height: 1.6; }
+
+  .checklist { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; }
+  .checklist ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .checklist li { display: flex; gap: 12px; align-items: baseline; line-height: 1.65; color: var(--text-dim); }
+  .checklist li b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .checklist .k { flex: none; width: 78px; color: var(--text); font-size: 13px; }
+  .tag {
+    flex: none; font-size: 11px; padding: 1px 0; border-radius: 5px; width: 52px; text-align: center;
+    border: 1px solid color-mix(in srgb, var(--tone, var(--border)) 45%, transparent);
+    color: var(--tone, var(--text-dim)); background: var(--panel);
+  }
+  .tag.manual { --tone: var(--text-faint); }
+
+  @media (max-width: 1000px) {
+    .charts2, .sim { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 16px 16px 28px; }
+    .chart.prem, .chart.fly, .chart.hist { height: 320px; }
+    .checklist li { flex-wrap: wrap; gap: 6px 10px; }
+    .checklist li .txt { flex-basis: 100%; }
+    .slider { grid-template-columns: 92px minmax(0, 1fr) 56px; }
+    .ladder .tick { display: none; }
+    .ladder .zl { font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>MSTR 溢价<span class="sub">mNAV：股票估值相对所持 BTC 的倍数，以及怎么用它做决策</span></h1>
+    <nav class="nav">
+      <a href="index.html">资产市值</a>
+      <a href="macro.html">宏观相关性</a>
+      <a href="beta.html">加密股 Beta</a>
+      <a href="mstr.html">MSTR 溢价</a>
+    </nav>
+    <div class="stamp" id="stamp">加载中…</div>
+  </header>
+
+  <section class="verdict" id="verdict" aria-live="polite"></section>
+
+  <div class="section-label">关键读数</div>
+  <div class="cards num" id="cards"></div>
+
+  <h2 class="block-title">长期走势<span>市值口径从 2020-08 开始买币起就有，EV 口径 2024-12-31 起公布</span></h2>
+  <div class="toolbar">
+    <div class="chips" id="histChips"></div>
+    <label class="toggle"><input type="checkbox" id="histLog"> 对数坐标</label>
+    <div class="spacer"></div>
+    <div class="seg" id="histRangeSeg">
+      <button data-range="all">全部</button>
+      <button data-range="36">3 年</button>
+      <button data-range="12">1 年</button>
+      <button data-range="6">6 个月</button>
+    </div>
+  </div>
+  <div class="chart-panel"><div id="chartHist" class="chart hist"></div></div>
+  <section class="checklist insight" aria-live="polite">
+    <h3>数据解读<span id="histScope"></span></h3>
+    <ul id="histInsight"></ul>
+  </section>
+
+  <h2 class="block-title">档位与飞轮<span>近两年，EV 口径公布以来</span></h2>
+  <div class="toolbar">
+    <div class="chips" id="lineChips"></div>
+    <div class="spacer"></div>
+    <div class="seg" id="rangeSeg">
+      <button data-range="all">全部</button>
+      <button data-range="12">1 年</button>
+      <button data-range="6">6 个月</button>
+    </div>
+  </div>
+  <div class="charts2">
+    <div class="chart-panel"><div id="chartPrem" class="chart prem"></div></div>
+    <div class="chart-panel"><div id="chartFly" class="chart fly"></div></div>
+  </div>
+
+  <h2 class="block-title">情景压力测试<span>BTC 涨跌 × 溢价变化，MSTR 会怎样</span></h2>
+  <div class="sim">
+    <div class="sim-panel">
+      <div class="presets" id="presets">
+        <button data-b="0" data-e="now" data-s="0">当前</button>
+        <button data-b="-50" data-e="1" data-s="0">双杀：BTC −50%、EV 降到 1.0×</button>
+        <button data-b="-30" data-e="0.8" data-s="0">融资受阻：EV 0.8×</button>
+        <button data-b="50" data-e="1.6" data-s="5">牛市：溢价修复</button>
+      </div>
+      <div class="slider"><label for="sB">BTC 价格变化</label><input type="range" id="sB" min="-70" max="150" step="5"><output id="oB"></output></div>
+      <div class="slider"><label for="sE">未来 EV mNAV</label><input type="range" id="sE" min="0.6" max="2.5" step="0.02"><output id="oE"></output></div>
+      <div class="slider"><label for="sS">每股 BTC 变化</label><input type="range" id="sS" min="-20" max="30" step="1"><output id="oS"></output></div>
+      <div class="sim-out num">
+        <div><span>MSTR 股价变化</span><b id="rR"></b></div>
+        <div><span>同期直接持有 BTC</span><b id="rB"></b></div>
+        <div><span>届时净溢价</span><b id="rP"></b></div>
+        <div><span>届时杠杆</span><b id="rL"></b></div>
+      </div>
+      <p class="sim-note" id="simNote"></p>
+    </div>
+    <div class="sim-panel">
+      <div class="matrix-wrap"><table class="matrix" id="matrix"></table></div>
+    </div>
+  </div>
+
+  <h2 class="block-title">决策检查清单<span>前六项按最新数据自动判断，最后两项数据覆盖不到，需要自己核对</span></h2>
+  <section class="checklist"><ul id="checklist"></ul></section>
+
+  <div class="foot">
+    <b>三个口径</b>：市值口径 = 普通股市值 / BTC 净值；EV 口径（Strategy 官方）= (市值 + 债务 + 优先股 − 现金) / BTC 净值；
+    净溢价 = 市值 / (BTC 净值 − 净负债)，净负债由 EV 口径反推（EV × BTC 净值 − 市值）。
+    普通股排在债务和优先股之后，所以市值口径会因为杠杆被动变化：BTC 下跌时即使市场给的溢价不变，市值口径也会变低。
+    判断贵不贵看净溢价和 EV 口径，不要直接看市值口径。
+    <br><b>官网 mNAV</b> 是 Strategy 官网首页展示的数值，口径以官网说明为准。
+    <b>早期数据</b>：2020–2021 年 BTC 持仓相对公司体量还小，市值里有相当部分是软件业务的估值，这段 mNAV 偏高不全是 BTC 溢价。
+    <br><b>杠杆</b> = BTC 净值 / (BTC 净值 − 净负债)，即 BTC 涨跌 1% 时归普通股的净资产涨跌多少，和 Strategy 官网的 amplification 口径一致。
+    <br><b>档位</b>：EV 口径 &lt; 1.0× 飞轮反转（增发普通股会稀释每股 BTC），1.0–1.3× 低溢价，1.3–2.0× 溢价，&gt; 2.0× 高溢价。
+    EV 口径只有不到两年的历史，档位是经验划分，不是统计意义上的最优买卖点。
+    <br><b>情景测算</b>：假设净负债按每股不变（不新增债务和优先股），每股 BTC 变化单独设定；不含期权、税费和交易成本。
+    <br><b>每股 BTC</b>、现金储备、年化股息与利息、现金覆盖年限均为 Strategy 官网口径（每股 BTC 按稀释后股数），2025 年起陆续公布。
+    <br>数据来源：<code>api.strategy.com/btc/timeSeries</code>（非文档化接口）。本页由规则自动生成，用于整理判断思路，不构成投资建议。
+  </div>
+</div>
+
+<script>
+let M = null;
+const charts = {};
+const state = { range: 'all', lines: ['mnav_ev', 'prem_net'] };
+const STORE_KEY = 'mstr-view';
+
+const ZONES = [
+  { lo: 0,   hi: 1.0, name: '飞轮反转区', tone: 'warn',
+    desc: '整个资本结构相对 BTC 打折，增发普通股会稀释每股 BTC，公司只能靠优先股和债务融资。可能是错杀，也可能是融资风险正在兑现，先确认原因，不能看到便宜就买。' },
+  { lo: 1.0, hi: 1.3, name: '低溢价区', tone: 'ok',
+    desc: '用 MSTR 拿 BTC 敞口的额外成本有限。如果看好 BTC，这个区间适合分批建仓，而不是押注溢价修复。' },
+  { lo: 1.3, hi: 2.0, name: '溢价区', tone: 'mid',
+    desc: '价格里已经包含增长预期，需要每股 BTC 持续增长来支撑。溢价回落会让 MSTR 明显跑输 BTC。' },
+  { lo: 2.0, hi: Infinity, name: '高溢价区', tone: 'risk',
+    desc: '溢价收缩的风险大于继续扩张的空间。历史上市值口径冲到 3× 左右（2024-11）对应阶段顶部，更适合减仓而不是追高。' },
+];
+const zoneOf = (ev) => ZONES.find(z => ev < z.hi);
+const LADDER = [0.6, 2.6];  // 标尺显示范围
+const ladderPct = (v) => Math.max(0, Math.min(100, (v - LADDER[0]) / (LADDER[1] - LADDER[0]) * 100));
+
+const LINES = [
+  { key: 'mnav_ev', label: 'EV 口径（官方）', color: '#d95926' },
+  { key: 'prem_net', label: '净溢价', color: '#e5c07b' },
+  { key: 'mnav_mc', label: '市值口径', color: '#3987e5' },
+];
+
+const x2 = (v) => v == null ? '—' : v.toFixed(2) + '×';
+// 情景测算里 E0 是由取整后的 EV 反推的，「不变」的情景会算出 −1e-16 这种值，按 0 处理
+const zero = (v) => Math.abs(v) < 5e-4 ? 0 : v;
+const pct = (v, d = 1) => v == null ? '—' : (zero(v) >= 0 ? '+' : '−') + Math.abs(zero(v) * 100).toFixed(d) + '%';
+const usdM = (m) => m == null ? '—' : fmtUSD(m * 1e6);
+const toneCls = (t) => `t-${t}`;
+
+/** 某列最近一个非空值的下标。 */
+function lastIdx(key) {
+  const a = M[key];
+  for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return i;
+  return -1;
+}
+/** 第 i 天往前 n 个交易日的值相对变化（rel=true 为比例，否则为差值）。 */
+function change(key, i, n, rel) {
+  const j = i - n;
+  if (j < 0 || M[key][j] == null || M[key][i] == null) return null;
+  return rel ? M[key][i] / M[key][j] - 1 : M[key][i] - M[key][j];
+}
+function seriesStats(key) {
+  const vals = M[key].filter(v => v != null);
+  const i = lastIdx(key), latest = M[key][i];
+  let lo = 0, hi = 0;
+  M[key].forEach((v, k) => {
+    if (v == null) return;
+    if (M[key][lo] == null || v < M[key][lo]) lo = k;
+    if (M[key][hi] == null || v > M[key][hi]) hi = k;
+  });
+  return {
+    latest, i, n: vals.length,
+    pct: vals.filter(v => v < latest).length / Math.max(1, vals.length - 1),
+    lo: [M.dates[lo], M[key][lo]], hi: [M.dates[hi], M[key][hi]],
+  };
+}
+
+/* ---------------- 情景测算 ----------------
+ * 每股口径：E = EV倍数 × V − L。V 为每股对应的 BTC 价值，L 为每股净负债（假设不变）。
+ * 未来：V1 = V0 × (1 + BTC 涨跌) × (1 + 每股 BTC 变化)，E1 = ev1 × V1 − L，股价变化 = E1 / E0 − 1。 */
+function scenario(b, ev1, s) {
+  const i = lastIdx('net_liab');
+  const V0 = M.btc_nav[i], L = M.net_liab[i], E0 = M.market_cap[i];
+  const V1 = V0 * (1 + b) * (1 + s);
+  const E1 = ev1 * V1 - L;
+  const net = V1 - L;
+  return {
+    ret: E1 <= 0 ? -1 : E1 / E0 - 1,
+    prem: net > 0 && E1 > 0 ? E1 / net : null,
+    lev: net > 0 ? V1 / net : null,
+  };
+}
+
+/* ---------------- 结论条 ---------------- */
+function renderVerdict() {
+  const ev = seriesStats('mnav_ev');
+  const iL = lastIdx('leverage');
+  const prem = M.prem_net[iL], lev = M.leverage[iL];
+  const z = zoneOf(ev.latest);
+  const crash = scenario(-0.5, 1.0, 0);
+  const box = document.getElementById('verdict');
+  box.className = `verdict ${toneCls(z.tone)}`;
+
+  const segs = ZONES.map(zz => {
+    const lo = Math.max(zz.lo, LADDER[0]), hi = Math.min(zz.hi, LADDER[1]);
+    return `<div class="seg ${toneCls(zz.tone)} ${zz === z ? 'cur' : ''}" style="width:${ladderPct(hi) - ladderPct(lo)}%"></div>`;
+  }).join('');
+  const labels = ZONES.map(zz => {
+    const mid = (Math.max(zz.lo, LADDER[0]) + Math.min(zz.hi, LADDER[1])) / 2;
+    return `<span class="zl" style="left:${ladderPct(mid)}%">${zz.name}</span>`;
+  }).join('');
+  const ticks = [1.0, 1.3, 2.0].map(t => `<span class="tick" style="left:${ladderPct(t)}%">${t.toFixed(1)}</span>`).join('');
+
+  box.innerHTML = `
+    <div class="zone"><b>${z.name} · EV ${x2(ev.latest)}</b>
+      <span>净溢价 ${x2(prem)} · 杠杆 ${lev.toFixed(2)} 倍 · 截至 ${M.dates[ev.i]}</span></div>
+    <p>${z.desc}</p>
+    <p>现在买 MSTR，你为每 1 美元归属普通股的 BTC 付 <b>${prem.toFixed(2)} 美元</b>，换来约 <b>${lev.toFixed(2)} 倍</b>的 BTC 敞口。
+       EV 口径处于 2024-12-31 以来的 <b>${Math.round(ev.pct * 100)}% 分位</b>（区间 ${x2(ev.lo[1])} ~ ${x2(ev.hi[1])}）。</p>
+    <p>仓位按坏情况定：如果 BTC 跌 50%、EV 口径同时降到 1.0×，MSTR 约 <b>${pct(crash.ret, 0)}</b>（直接持有 BTC 是 −50%）。
+       这个跌幅你能拿得住，仓位才合适。</p>
+    <div class="ladder">${labels}<div class="bar">${segs}</div>${ticks}
+      <span class="mark range" style="left:${ladderPct(ev.lo[1])}%" title="历史最低 ${ev.lo[0]}"></span>
+      <span class="mark range" style="left:${ladderPct(ev.hi[1])}%" title="历史最高 ${ev.hi[0]}"></span>
+      <span class="mark" style="left:${ladderPct(ev.latest)}%"><i>当前 ${ev.latest.toFixed(2)}</i></span>
+    </div>`;
+}
+
+/* ---------------- 关键读数 ---------------- */
+function renderCards() {
+  const iE = lastIdx('mnav_ev'), iS = lastIdx('sats_per_share'), iD = lastIdx('usd_duration_yrs');
+  const prem = seriesStats('prem_net');
+  const dEv1m = change('mnav_ev', iE, 21, false);
+  const dLev3m = change('leverage', iE, 63, false);
+  const dS3m = change('sats_per_share', iS, 63, true), dS1y = change('sats_per_share', iS, 252, true);
+  const ev = M.mnav_ev[iE], lev = M.leverage[iE], mc = M.mnav_mc[iE];
+  const dur = M.usd_duration_yrs[iD];
+  const cards = [
+    { label: '净溢价', value: x2(prem.latest), tone: zoneOf(ev).tone,
+      meta: [`你实际付的溢价`, `历史 <b>${Math.round(prem.pct * 100)}%</b> 分位`] },
+    { label: 'EV 口径 mNAV', value: x2(ev), tone: zoneOf(ev).tone,
+      meta: [zoneOf(ev).name, dEv1m == null ? '' : `1 个月 <b>${dEv1m >= 0 ? '+' : ''}${dEv1m.toFixed(2)}</b>`] },
+    { label: '市值口径 mNAV', value: x2(mc), tone: 'mid',
+      meta: ['含杠杆效应，不直接判断贵贱'] },
+    { label: '杠杆', value: lev.toFixed(2) + ' 倍', tone: lev > 1.6 ? 'risk' : lev > 1.3 ? 'warn' : 'ok',
+      meta: [`BTC 涨跌 1% → 净资产 ${lev.toFixed(2)}%`, dLev3m == null ? '' : `3 个月 <b>${dLev3m >= 0 ? '+' : ''}${dLev3m.toFixed(2)}</b>`] },
+    { label: '每股 BTC', value: Math.round(M.sats_per_share[iS]).toLocaleString() + ' 聪', tone: dS3m == null ? 'mid' : dS3m > 0.01 ? 'ok' : dS3m < -0.01 ? 'warn' : 'mid',
+      meta: [`3 个月 <b>${pct(dS3m)}</b>`, `1 年 <b>${pct(dS1y)}</b>`] },
+    { label: '现金覆盖股息和利息', value: dur == null ? '—' : dur.toFixed(1) + ' 年', tone: dur == null ? 'mid' : dur >= 2 ? 'ok' : dur >= 1 ? 'warn' : 'risk',
+      meta: [`现金 <b>${usdM(M.usd_reserve[iD])}</b>`, `每年支出 <b>${usdM(M.ann_dividends[iD])}</b>`] },
+  ];
+  const box = document.getElementById('cards');
+  box.innerHTML = cards.map(c => `
+    <div class="card ${toneCls(c.tone)}">
+      <div class="label"><span class="dot"></span>${c.label}</div>
+      <div class="value sm">${c.value}</div>
+      <div class="meta">${c.meta.filter(Boolean).map(m => `<span>${m}</span>`).join('')}</div>
+    </div>`).join('');
+}
+
+/* ---------------- 图表 ---------------- */
+function rangeStart() {
+  const first = M.dates[M.mnav_ev.findIndex(v => v != null)];
+  if (state.range === 'all') return first;
+  const d = new Date(M.as_of);
+  d.setMonth(d.getMonth() - Number(state.range));
+  const s = d.toISOString().slice(0, 10);
+  return s > first ? s : first;
+}
+
+function initChart(id) {
+  if (!charts[id]) {
+    const el = document.getElementById(id);
+    charts[id] = echarts.init(el, null, { renderer: 'canvas' });
+    new ResizeObserver(() => charts[id].resize()).observe(el);
+  }
+  return charts[id];
+}
+
+const pairs = (key, from) => M.dates.map((d, i) => [d, M[key][i]]).filter(p => p[1] != null && p[0] >= from);
+
+function renderPremChart() {
+  const from = rangeStart();
+  const lines = LINES.filter(l => state.lines.includes(l.key));
+  let hi = 0;
+  lines.forEach(l => pairs(l.key, from).forEach(p => { hi = Math.max(hi, p[1]); }));
+  const yMax = Math.max(2.2, Math.ceil(hi * 10) / 10 + 0.1);
+  const zoneColor = { ok: 'rgba(38,166,154,.07)', mid: 'rgba(76,141,255,.06)', warn: 'rgba(216,166,87,.09)', risk: 'rgba(239,83,80,.08)' };
+
+  const series = lines.map((l, idx) => ({
+    name: l.label, type: 'line', showSymbol: false, sampling: 'lttb',
+    data: pairs(l.key, from),
+    lineStyle: { width: l.key === 'mnav_mc' ? 1.3 : 1.9, color: l.color, type: l.key === 'mnav_mc' ? 'dashed' : 'solid' },
+    itemStyle: { color: l.color },
+    endLabel: { show: true, formatter: (p) => `${p.value[1].toFixed(2)}×`, color: LABEL, fontSize: 11 },
+    labelLayout: { moveOverlap: 'shiftY' },
+    markArea: idx === 0 ? {
+      silent: true,
+      data: ZONES.map(z => [
+        { yAxis: Math.max(z.lo, 0.4), itemStyle: { color: zoneColor[z.tone] },
+          label: { show: true, position: 'insideTopLeft', formatter: z.name, color: FAINT, fontSize: 10 } },
+        { yAxis: Math.min(z.hi, yMax) },
+      ]),
+    } : undefined,
+  }));
+
+  initChart('chartPrem').setOption({
+    ...baseOption(),
+    title: { text: '溢价走势与档位', left: 12, top: 8, textStyle: { color: '#d6dae5', fontSize: 13, fontWeight: 600 } },
+    legend: { ...baseOption().legend, top: 8, left: 'right', right: 16 },
+    grid: { left: 48, right: 56, top: 44, bottom: 30 },
+    xAxis: { type: 'time', min: from, max: M.as_of, axisLine: { lineStyle: { color: AXIS } },
+      axisTick: { show: false }, axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+    yAxis: { type: 'value', min: 0.4, max: yMax,
+      axisLabel: { color: LABEL, fontSize: 11, formatter: v => v.toFixed(1) + '×' },
+      splitLine: { lineStyle: { color: GRID_LINE } } },
+    tooltip: { ...tooltipBase, axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      valueFormatter: v => v == null ? '—' : v.toFixed(3) + '×' },
+    series,
+  }, { notMerge: true });
+}
+
+function renderFlyChart() {
+  const from = rangeStart();
+  initChart('chartFly').setOption({
+    ...baseOption(),
+    title: { text: '飞轮：每股 BTC 与杠杆', left: 12, top: 8, textStyle: { color: '#d6dae5', fontSize: 13, fontWeight: 600 } },
+    legend: { ...baseOption().legend, top: 30, left: 12 },
+    grid: { left: 64, right: 48, top: 62, bottom: 30 },
+    xAxis: { type: 'time', min: from, max: M.as_of, axisLine: { lineStyle: { color: AXIS } },
+      axisTick: { show: false }, axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+    yAxis: [
+      { type: 'value', scale: true, axisLabel: { color: LABEL, fontSize: 11, formatter: v => (v / 1000).toFixed(0) + 'k' },
+        splitLine: { lineStyle: { color: GRID_LINE } } },
+      { type: 'value', scale: true, axisLabel: { color: LABEL, fontSize: 11, formatter: v => v.toFixed(1) + '×' },
+        splitLine: { show: false } },
+    ],
+    tooltip: { ...tooltipBase, axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      formatter: (ps) => {
+        if (!ps.length) return '';
+        const d = echarts.time.format(ps[0].value[0], '{yyyy}-{MM}-{dd}', false);
+        return `<div style="font-weight:600;margin-bottom:6px">${d}</div>` + ps.map(p =>
+          `<div>${p.marker}${p.seriesName}　<b>${p.seriesIndex === 0 ? Math.round(p.value[1]).toLocaleString() + ' 聪' : p.value[1].toFixed(2) + ' 倍'}</b></div>`).join('');
+      } },
+    series: [
+      { name: '每股 BTC（聪）', type: 'line', showSymbol: false, data: pairs('sats_per_share', from),
+        lineStyle: { width: 1.9, color: UP }, itemStyle: { color: UP }, step: 'end' },
+      { name: '杠杆', type: 'line', yAxisIndex: 1, showSymbol: false, data: pairs('leverage', from),
+        lineStyle: { width: 1.4, color: '#c678dd' }, itemStyle: { color: '#c678dd' } },
+    ],
+  }, { notMerge: true });
+}
+
+function renderControls() {
+  const box = document.getElementById('lineChips');
+  box.replaceChildren();
+  for (const l of LINES) {
+    const on = state.lines.includes(l.key);
+    const locked = on && state.lines.length === 1;
+    const lab = document.createElement('label');
+    lab.className = `chip sm ${on ? 'on' : ''} ${locked ? 'locked' : ''}`;
+    lab.style.setProperty('--tone', l.color);
+    const inp = document.createElement('input');
+    inp.type = 'checkbox'; inp.checked = on; inp.disabled = locked; inp.dataset.line = l.key;
+    const b = document.createElement('span'); b.className = 'box';
+    lab.append(inp, b, l.label);
+    box.append(lab);
+  }
+  document.querySelectorAll('#rangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.range === state.range));
+}
+
+/* ---------------- 情景 ---------------- */
+const sim = { b: 0, e: null, s: 0 };
+
+function renderSim() {
+  const $ = (id) => document.getElementById(id);
+  $('sB').value = sim.b; $('sE').value = sim.e; $('sS').value = sim.s;
+  $('oB').textContent = (sim.b >= 0 ? '+' : '') + sim.b + '%';
+  $('oE').textContent = sim.e.toFixed(2) + '×';
+  $('oS').textContent = (sim.s >= 0 ? '+' : '') + sim.s + '%';
+  const r = scenario(sim.b / 100, sim.e, sim.s / 100);
+  const btc = (1 + sim.b / 100) * (1 + sim.s / 100) - 1;
+  const setv = (id, txt, v) => { $(id).textContent = txt; $(id).style.color = v == null || zero(v) === 0 ? '' : v > 0 ? 'var(--up)' : 'var(--down)'; };
+  setv('rR', r.ret <= -1 ? '−100%' : pct(r.ret), r.ret);
+  setv('rB', pct(sim.b / 100), sim.b / 100);
+  $('rP').textContent = r.prem == null ? '—' : x2(r.prem);
+  $('rL').textContent = r.lev == null ? '净资产为负' : r.lev.toFixed(2) + ' 倍';
+  const diff = zero(r.ret - sim.b / 100);
+  $('simNote').textContent = r.ret <= -1
+    ? '这个情景下市值被负债吃光，普通股价值归零。'
+    : (diff === 0 ? '和直接持有 BTC 持平。' : `相对直接持有 BTC ${diff > 0 ? '多赚' : '少赚'} ${Math.abs(diff * 100).toFixed(1)} 个百分点。`) +
+      (sim.s !== 0 ? `其中每股 BTC 变化贡献的部分，BTC 持有者拿不到（同期 BTC 只是 ${pct(sim.b / 100, 0)}）。` : '') +
+      (btc < 0 && sim.e < M.mnav_ev[lastIdx('mnav_ev')] ? ' BTC 下跌叠加溢价收缩，是 MSTR 最典型的双杀。' : '');
+}
+
+function renderMatrix() {
+  const evNow = M.mnav_ev[lastIdx('mnav_ev')];
+  const cols = [...new Set([0.8, 1.0, +evNow.toFixed(2), 1.3, 1.6, 2.0])].sort((a, b) => a - b);
+  const rows = [-60, -40, -20, 0, 20, 50, 100];
+  const cell = (r) => {
+    const a = Math.min(Math.abs(r), 1) * 0.42 + 0.06;
+    const bg = r >= 0 ? `rgba(38,166,154,${a})` : `rgba(239,83,80,${a})`;
+    return `background:${bg}`;
+  };
+  let html = `<thead><tr><th class="row">BTC ＼ 未来 EV</th>${cols.map(c =>
+    `<th class="${c === +evNow.toFixed(2) ? 'now' : ''}">${c.toFixed(2)}×${c === +evNow.toFixed(2) ? '<br>当前' : ''}</th>`).join('')}<th>持有 BTC</th></tr></thead><tbody>`;
+  for (const b of rows) {
+    html += `<tr><th class="row">${b > 0 ? '+' : b < 0 ? '−' : ''}${Math.abs(b)}%</th>`;
+    for (const c of cols) {
+      const r = scenario(b / 100, c, 0).ret;
+      const now = b === 0 && c === +evNow.toFixed(2);
+      html += `<td class="${now ? 'now' : ''}" style="${cell(r)}">${r <= -1 ? '−100%' : pct(r, 0)}</td>`;
+    }
+    html += `<td class="btc">${pct(b / 100, 0)}</td></tr>`;
+  }
+  html += `</tbody><caption>每格是 MSTR 股价变化，假设每股 BTC 和每股净负债不变。看同一行：EV 口径每差 0.1×，结果差多少；
+    看同一列：同样的溢价下，杠杆让涨跌都比 BTC 大。左下角是双杀区。</caption>`;
+  document.getElementById('matrix').innerHTML = html;
+}
+
+/* ---------------- 检查清单 ---------------- */
+function checklist() {
+  const ev = seriesStats('mnav_ev');
+  const z = zoneOf(ev.latest);
+  const iE = ev.i, iS = lastIdx('sats_per_share'), iD = lastIdx('usd_duration_yrs');
+  const lev = M.leverage[iE], dLev = change('leverage', iE, 63, false);
+  const dS3m = change('sats_per_share', iS, 63, true), dS1y = change('sats_per_share', iS, 252, true);
+  const dEv1m = change('mnav_ev', iE, 21, false), dEv3m = change('mnav_ev', iE, 63, false);
+  const dur = M.usd_duration_yrs[iD];
+  const out = [];
+
+  out.push({ k: '估值档位', tone: z.tone, tag: { ok: '低溢价', mid: '溢价', warn: '反转', risk: '高溢价' }[z.tone],
+    txt: `EV 口径 <b>${x2(ev.latest)}</b>，${z.name}；处于 2024-12-31 以来 <b>${Math.round(ev.pct * 100)}% 分位</b>，` +
+         `最低 ${x2(ev.lo[1])}（${ev.lo[0]}），最高 ${x2(ev.hi[1])}（${ev.hi[0]}）。` });
+
+  out.push(ev.latest >= 1.3
+    ? { k: '飞轮', tone: 'ok', tag: '在转', txt: `EV 口径明显高于 1，增发普通股买币能增厚每股 BTC，溢价有基本面支撑。` }
+    : ev.latest >= 1.0
+      ? { k: '飞轮', tone: 'warn', tag: '慢转', txt: `EV 口径 <b>${x2(ev.latest)}</b>，增发普通股只能勉强增厚每股 BTC，短期内溢价大幅扩张缺少推动力。` }
+      : { k: '飞轮', tone: 'risk', tag: '反转', txt: `EV 口径低于 1，增发普通股会稀释每股 BTC，公司只能靠优先股和债务融资，刚性支出会继续增加。` });
+
+  if (dS3m != null) {
+    const tone = dS3m > 0.01 ? 'ok' : dS3m < -0.01 ? 'warn' : 'mid';
+    out.push({ k: '每股 BTC', tone, tag: { ok: '增长', warn: '被稀释', mid: '持平' }[tone],
+      txt: `3 个月 <b>${pct(dS3m)}</b>，1 年 <b>${pct(dS1y)}</b>。` + (tone === 'warn'
+        ? '每股对应的 BTC 在减少，说明有稀释（低价增发或可转债转股），公司买币没有转化成股东收益。'
+        : tone === 'ok' ? '公司融资买币正在转化成每股收益，这是溢价能维持的前提。' : '融资买币对每股 BTC 基本没有贡献。') });
+  }
+
+  {
+    const tone = lev > 1.6 ? 'risk' : lev > 1.3 ? 'warn' : 'ok';
+    out.push({ k: '杠杆', tone, tag: { ok: '温和', warn: '偏高', risk: '高' }[tone],
+      txt: `当前 <b>${lev.toFixed(2)} 倍</b>` + (dLev == null ? '' : `，3 个月 ${dLev >= 0 ? '上升' : '下降'} <b>${Math.abs(dLev).toFixed(2)}</b>`) +
+           `。BTC 跌 30% 时归普通股的净资产约跌 <b>${(Math.min(1, 0.3 * lev) * 100).toFixed(0)}%</b>，再叠加溢价收缩，股价跌得更多。` +
+           '杠杆会随 BTC 下跌自动放大，所以下跌时风险会加速暴露。' });
+  }
+
+  if (dur != null) {
+    const tone = dur >= 2 ? 'ok' : dur >= 1 ? 'warn' : 'risk';
+    out.push({ k: '现金覆盖', tone, tag: { ok: '充足', warn: '偏紧', risk: '紧张' }[tone],
+      txt: `现金 <b>${usdM(M.usd_reserve[iD])}</b>，每年优先股股息和利息 <b>${usdM(M.ann_dividends[iD])}</b>，可覆盖 <b>${dur.toFixed(1)} 年</b>。` +
+           (tone === 'ok' ? '短期内不需要靠低价增发或卖币来付息。' : '覆盖年限不足时，溢价低迷会逼公司在不利价格融资甚至卖币。') });
+  }
+
+  if (dEv1m != null) {
+    const tone = dEv1m >= 0.1 ? 'ok' : dEv1m <= -0.1 ? 'warn' : 'mid';
+    out.push({ k: '溢价趋势', tone, tag: { ok: '修复', warn: '收缩', mid: '平稳' }[tone],
+      txt: `EV 口径 1 个月 <b>${dEv1m >= 0 ? '+' : ''}${dEv1m.toFixed(2)}</b>` +
+           (dEv3m == null ? '' : `，3 个月 <b>${dEv3m >= 0 ? '+' : ''}${dEv3m.toFixed(2)}</b>`) + '。' +
+           (tone === 'warn' ? '溢价在收缩，等企稳再加仓比摊低成本更稳妥。' : tone === 'ok' ? '溢价在修复，但不要据此追高到高溢价区。' : '近期没有明显方向。') });
+  }
+
+  out.push({ k: '债务条款', tone: null, tag: '人工', manual: true,
+    txt: '可转债的到期和回售时间、优先股条款变化，接口里没有。需要看公司 8-K / 10-Q，确认未来一两年有没有集中兑付压力。' });
+  out.push({ k: 'BTC 方向', tone: null, tag: '人工', manual: true,
+    txt: '这个页面只回答“用不用 MSTR、付了多少溢价”，不判断 BTC 涨跌。如果不看好 BTC，溢价再低也没有意义。' });
+  return out;
+}
+
+function renderChecklist() {
+  document.getElementById('checklist').innerHTML = checklist().map(c => `
+    <li><span class="tag ${c.manual ? 'manual' : toneCls(c.tone)}">${c.tag}</span>
+      <span class="k">${c.k}</span><span class="txt">${c.txt}</span></li>`).join('');
+}
+
+/* ---------------- 长期走势（原 Beta 页的 mNAV 板块） ---------------- */
+
+// 默认看近 3 年：2020 年市值口径 mNAV 高达 5~7 倍（主要是软件业务估值），全区间会把近几年压扁
+const hstate = { lines: ['mnav_mc', 'mnav_ev'], log: false, range: '36' };
+const HIST_LINES = [
+  { key: 'mnav_mc', label: '市值口径', color: '#3987e5' },
+  { key: 'mnav_ev', label: 'EV 口径（官方）', color: '#d95926' },
+];
+const fmtB = (m) => m == null ? '—' : `$${(m / 1000).toFixed(1)}B`;  // 接口单位是百万美元
+const premText = (v) => {
+  const p = (v - 1) * 100;
+  return p >= 0 ? `溢价 ${p.toFixed(0)}%` : `折价 ${(-p).toFixed(0)}%`;
+};
+
+function histRangeStart() {
+  if (hstate.range === 'all') return null;
+  const d = new Date(M.as_of);
+  d.setMonth(d.getMonth() - Number(hstate.range));
+  return d.toISOString().slice(0, 10);
+}
+
+const histRangeLabel = () => ({ all: '2020-08 以来', 36: '近 3 年', 12: '近 1 年', 6: '近 6 个月' }[hstate.range]);
+
+/** 某条 mNAV 序列在当前时间范围内的统计。 */
+function histStats(key) {
+  const arr = M[key], from = histRangeStart();
+  let last = -1;
+  const vals = [];
+  for (let i = 0; i < M.dates.length; i++) {
+    if (arr[i] == null) continue;
+    last = i;
+    if (!from || M.dates[i] >= from) vals.push([M.dates[i], arr[i]]);
+  }
+  if (last < 0 || !vals.length) return null;
+  const latest = arr[last];
+  const sorted = vals.map(v => v[1]);
+  const lo = vals.reduce((a, b) => (b[1] < a[1] ? b : a));
+  const hi = vals.reduce((a, b) => (b[1] > a[1] ? b : a));
+  const ago = (n) => (last - n >= 0 && arr[last - n] != null ? latest - arr[last - n] : null);
+  return {
+    latest, date: M.dates[last], n: vals.length, first: vals[0][0],
+    pct: sorted.length > 1 ? sorted.filter(v => v < latest).length / (sorted.length - 1) : null,
+    lo, hi, chg1m: ago(21), chg3m: ago(63),
+  };
+}
+
+function renderHistControls() {
+  const box = document.getElementById('histChips');
+  box.replaceChildren();
+  for (const l of HIST_LINES) {
+    const on = hstate.lines.includes(l.key);
+    const locked = on && hstate.lines.length === 1;
+    const lab = document.createElement('label');
+    lab.className = `chip sm ${on ? 'on' : ''} ${locked ? 'locked' : ''}`;
+    lab.style.setProperty('--tone', l.color);
+    const inp = document.createElement('input');
+    inp.type = 'checkbox'; inp.checked = on; inp.disabled = locked; inp.dataset.line = l.key;
+    const b = document.createElement('span'); b.className = 'box';
+    lab.append(inp, b, l.label);
+    box.append(lab);
+  }
+  document.getElementById('histLog').checked = hstate.log;
+  document.querySelectorAll('#histRangeSeg button').forEach(b =>
+    b.classList.toggle('on', b.dataset.range === hstate.range));
+}
+
+function renderHistChart() {
+  if (!charts.hist) {
+    const el = document.getElementById('chartHist');
+    charts.hist = echarts.init(el, null, { renderer: 'canvas' });
+    new ResizeObserver(() => charts.hist.resize()).observe(el);
+  }
+  const lines = HIST_LINES.filter(l => hstate.lines.includes(l.key));
+  const from = histRangeStart();
+  const series = lines.map((l, idx) => ({
+    name: l.label, type: 'line', showSymbol: false, sampling: 'lttb',
+    data: M.dates.map((d, i) => [d, M[l.key][i]]).filter(p => p[1] != null),
+    lineStyle: { width: 1.8, color: l.color }, itemStyle: { color: l.color },
+    endLabel: { show: true, formatter: (p) => `${p.value[1].toFixed(2)}×`, color: LABEL, fontSize: 11 },
+    labelLayout: { moveOverlap: 'shiftY' },
+    markLine: idx === 0 ? {
+      silent: true, symbol: 'none', data: [{ yAxis: 1 }],
+      lineStyle: { color: '#4a5266', type: 'dashed', width: 1 },
+      label: { formatter: 'mNAV = 1（市值 = 持币价值）', color: FAINT, fontSize: 10, position: 'insideStartTop' },
+    } : undefined,
+  }));
+
+  charts.hist.setOption({
+    ...baseOption(),
+    legend: { ...baseOption().legend, top: 8, left: 'right', right: 16 },
+    grid: { left: 52, right: 64, top: 40, bottom: 64 },
+    xAxis: {
+      type: 'time', min: from || M.dates[0], max: M.as_of,
+      axisLine: { lineStyle: { color: AXIS } }, axisTick: { show: false },
+      axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false },
+    },
+    yAxis: {
+      type: hstate.log ? 'log' : 'value', scale: true, logBase: 2,
+      axisLabel: { color: LABEL, fontSize: 11, formatter: v => v.toFixed(v < 2 ? 2 : 1) + '×' },
+      splitLine: { lineStyle: { color: GRID_LINE } },
+    },
+    dataZoom: zoomCfg(0, [0]),
+    tooltip: {
+      ...tooltipBase,
+      axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      formatter: (ps) => {
+        if (!ps.length) return '';
+        const date = echarts.time.format(ps[0].value[0], '{yyyy}-{MM}-{dd}', false);
+        const i = M.dates.indexOf(date);
+        const rows = ps.map(p =>
+          `<tr><td style="padding-right:14px"><span style="display:inline-block;width:12px;height:2px;` +
+          `background:${p.color};vertical-align:middle;margin-right:7px"></span>${p.seriesName}</td>` +
+          `<td style="text-align:right;font-weight:600">${p.value[1].toFixed(3)}×</td></tr>`).join('');
+        const extra = i >= 0
+          ? `<tr><td style="padding-right:14px;color:${LABEL}">BTC 持仓</td><td style="text-align:right">${M.btc_holdings[i].toLocaleString()}</td></tr>` +
+            `<tr><td style="padding-right:14px;color:${LABEL}">BTC 净值 / 市值</td><td style="text-align:right">${fmtB(M.btc_nav[i])} / ${fmtB(M.market_cap[i])}</td></tr>`
+          : '';
+        return `<div style="font-weight:600;margin-bottom:6px">${date}</div>` +
+          `<table style="font-variant-numeric:tabular-nums;border-spacing:0">${rows}${extra}</table>`;
+      },
+    },
+    series,
+  }, { notMerge: true });
+}
+
+/* mNAV 解读。和 Beta 一样是纯规则：分位 ≥85% / ≤15% 算高位 / 低位，1 个月变化超过 0.1 才提。 */
+function histInsights() {
+  const out = [];
+  const mc = histStats('mnav_mc'), ev = histStats('mnav_ev');
+  if (!mc) return [item('提示', 'note', ['还没有 mNAV 数据。'])];
+
+  out.push(item('水平', mc.latest >= 1 ? 'up' : 'down', [
+    '按市值口径，MSTR 当前 mNAV 为 ', { b: `${mc.latest.toFixed(2)}×` }, `（${premText(mc.latest)}），`,
+    mc.latest >= 1
+      ? '普通股市值高于所持 BTC 的价值，市场愿意为它的持币和融资能力付溢价。'
+      : '普通股市值已经低于所持 BTC 的价值。',
+  ]));
+
+  if (ev) {
+    const parts = ['按 Strategy 官方的 EV 口径（计入债务和优先股）为 ', { b: `${ev.latest.toFixed(2)}×` }, '。'];
+    if (mc.latest < 1 && ev.latest >= 1) {
+      parts.push('市值口径折价、EV 口径仍有溢价，说明折价主要来自资本结构：普通股排在债务和优先股之后，',
+        '承担了杠杆，而不是市场认为整体资产不值这个价。');
+    } else if (ev.latest < 1) {
+      parts.push('连计入债务和优先股的整体估值都低于持币价值，这在 Strategy 的历史上很少见。');
+    }
+    out.push(item('EV 口径', ev.latest >= 1 ? '' : 'down', parts));
+  }
+
+  const posParts = [`在${histRangeLabel()}，市值口径 mNAV 处于 `, { b: `${Math.round(mc.pct * 100)}% 分位` },
+    `，区间最低 `, { b: `${mc.lo[1].toFixed(2)}×` }, `（${mc.lo[0]}），最高 `, { b: `${mc.hi[1].toFixed(2)}×` },
+    `（${mc.hi[0]}）`];
+  if (mc.pct >= 0.85) posParts.push('，接近这段时间的高点。');
+  else if (mc.pct <= 0.15) posParts.push('，接近这段时间的低点。');
+  else posParts.push('。');
+  out.push(item('历史位置', mc.pct >= 0.85 ? 'up' : mc.pct <= 0.15 ? 'down' : '', posParts));
+
+  const moves = [];
+  if (mc.chg1m != null) moves.push(`较 1 个月前${mc.chg1m >= 0 ? '上升' : '下降'} `, { b: Math.abs(mc.chg1m).toFixed(2) });
+  if (mc.chg3m != null) moves.push(`，较 3 个月前${mc.chg3m >= 0 ? '上升' : '下降'} `, { b: Math.abs(mc.chg3m).toFixed(2) });
+  if (moves.length) {
+    const big = mc.chg1m != null && Math.abs(mc.chg1m) >= 0.1;
+    out.push(item('近期变化', big ? (mc.chg1m > 0 ? 'up' : 'down') : '', ['市值口径 mNAV ', ...moves,
+      big ? '，溢价变化明显。' : '，最近一个月变化不大。']));
+  }
+
+  const i = M.dates.length - 1, back = i - 63;
+  if (back >= 0) {
+    const added = M.btc_holdings[i] - M.btc_holdings[back];
+    out.push(item('持币', added > 0 ? 'up' : '', [
+      '当前持有 ', { b: `${M.btc_holdings[i].toLocaleString()} BTC` },
+      added > 0 ? '，近 3 个月增持 ' : '，近 3 个月没有增持',
+      ...(added > 0 ? [{ b: `${added.toLocaleString()} BTC` }, '。'] : ['。']),
+    ]));
+  }
+
+  out.push(item('怎么理解', '', [
+    'mNAV 高于 1 时，增发普通股买币能提高每股对应的 BTC 数量；低于 1 时增发普通股会稀释每股持币，',
+    '公司通常转向债务或优先股融资。所以 mNAV 高低会直接影响 Strategy 继续买币的方式和速度。',
+  ]));
+  if (!histRangeStart() || histRangeStart() < '2022-01-01') {
+    out.push(item('注意', 'note', ['2020–2021 年市值里有相当部分是软件业务估值，这段的高 mNAV 不全是 BTC 溢价。']));
+  }
+  return out;
+}
+
+function updateHist() {
+  renderHistControls();
+  renderHistChart();
+  renderInsights('histInsight', histInsights());
+  document.getElementById('histScope').textContent = `市值口径为主 · ${histRangeLabel()} · 截至 ${M.as_of}`;
+  try { localStorage.setItem('mnav-view', JSON.stringify(hstate)); } catch (e) { /* 忽略 */ }
+}
+
+function item(tag, tone, parts) { return { tag, tone, parts }; }
+
+/** 解读条目：parts 里字符串原样输出，{ b } 加粗。tone 沿用 Beta 页的 up / down / note。 */
+function renderInsights(ulId, list) {
+  const TONE = { up: 't-ok', down: 't-risk', note: 't-warn' };
+  const ul = document.getElementById(ulId);
+  ul.replaceChildren();
+  for (const it of list) {
+    const li = document.createElement('li');
+    const tag = document.createElement('span');
+    tag.className = `tag ${TONE[it.tone] || ''}`;
+    tag.textContent = it.tag;
+    const p = document.createElement('span');
+    p.className = 'txt';
+    for (const part of it.parts) {
+      if (typeof part === 'string') p.append(part);
+      else { const b = document.createElement('b'); b.textContent = part.b; p.append(b); }
+    }
+    li.append(tag, p);
+    ul.append(li);
+  }
+}
+
+function bootHist() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('mnav-view') || 'null');
+    if (saved) Object.assign(hstate, saved);
+  } catch (e) { /* 忽略 */ }
+  hstate.lines = hstate.lines.filter(k => HIST_LINES.some(l => l.key === k));
+  if (!hstate.lines.length) hstate.lines = HIST_LINES.map(l => l.key);
+  document.getElementById('histChips').addEventListener('change', (e) => {
+    const k = e.target.dataset.line;
+    if (!k) return;
+    hstate.lines = e.target.checked
+      ? HIST_LINES.map(l => l.key).filter(x => x === k || hstate.lines.includes(x))
+      : hstate.lines.filter(x => x !== k);
+    updateHist();
+  });
+  document.getElementById('histLog').addEventListener('change', (e) => {
+    hstate.log = e.target.checked; updateHist();
+  });
+  document.getElementById('histRangeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { hstate.range = b.dataset.range; updateHist(); }
+  });
+  updateHist();
+}
+
+/* ---------------- 启动 ---------------- */
+function updateCharts() {
+  renderControls();
+  renderPremChart();
+  renderFlyChart();
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* 忽略 */ }
+}
+
+(async function boot() {
+  markNav();
+  try {
+    M = await get(dataUrl.mnav());
+  } catch (e) {
+    // 直接双击打开（file://）时浏览器不允许 fetch 本地 JSON，页面会一直停在「加载中」
+    const fileHint = location.protocol === 'file:'
+      ? '直接打开 HTML 文件时浏览器不允许读取数据，请先启动本地服务：<code>.venv/bin/uvicorn app.main:app --port 8765</code>，再打开 http://127.0.0.1:8765/mstr.html'
+      : `数据加载失败：${e.message}`;
+    document.getElementById('stamp').textContent = '数据加载失败';
+    document.getElementById('verdict').innerHTML = `<p>${fileHint}</p>`;
+    return;
+  }
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    if (saved) Object.assign(state, saved);
+  } catch (e) { /* 忽略 */ }
+  state.lines = state.lines.filter(k => LINES.some(l => l.key === k));
+  if (!state.lines.length) state.lines = ['mnav_ev'];
+
+  const iE = lastIdx('mnav_ev');
+  document.getElementById('stamp').textContent =
+    `数据截至 ${M.dates[iE]} 美股收盘 · MSTR $${M.price[iE].toFixed(2)} · 持有 ${M.btc_holdings[iE].toLocaleString()} BTC`;
+
+  renderVerdict();
+  renderCards();
+  renderChecklist();
+  renderMatrix();
+
+  sim.e = +M.mnav_ev[iE].toFixed(2);
+  renderSim();
+  for (const [id, key, scale] of [['sB', 'b', 1], ['sE', 'e', 1], ['sS', 's', 1]]) {
+    document.getElementById(id).addEventListener('input', (e) => { sim[key] = +e.target.value * scale; renderSim(); });
+  }
+  document.getElementById('presets').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    sim.b = +b.dataset.b; sim.s = +b.dataset.s;
+    sim.e = b.dataset.e === 'now' ? +M.mnav_ev[iE].toFixed(2) : +b.dataset.e;
+    renderSim();
+  });
+
+  document.getElementById('lineChips').addEventListener('change', (e) => {
+    const k = e.target.dataset.line;
+    if (!k) return;
+    state.lines = e.target.checked
+      ? LINES.map(l => l.key).filter(x => x === k || state.lines.includes(x))
+      : state.lines.filter(x => x !== k);
+    updateCharts();
+  });
+  document.getElementById('rangeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { state.range = b.dataset.range; updateCharts(); }
+  });
+  updateCharts();
+  bootHist();
+})();
+</script>
+</body>
+</html>

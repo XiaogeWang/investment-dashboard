@@ -63,6 +63,10 @@ CREATE TABLE IF NOT EXISTS mstr_nav (
     btc_holdings REAL NOT NULL,
     mnav_ev      REAL,
     mnav         REAL,
+    sats_per_share   REAL,
+    usd_reserve      REAL,
+    ann_dividends    REAL,
+    usd_duration_yrs REAL,
     source       TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -89,9 +93,22 @@ def connect():
         conn.close()
 
 
+# 已有库补列。CREATE TABLE IF NOT EXISTS 不会给老表加列，本地库要靠这里跟上 SCHEMA；
+# CI 每次都是新库，用不到。
+_ADDED_COLUMNS = {
+    "mstr_nav": ["sats_per_share REAL", "usd_reserve REAL", "ann_dividends REAL",
+                 "usd_duration_yrs REAL"],
+}
+
+
 def init_db():
     with connect() as conn:
         conn.executescript(SCHEMA)
+        for table, cols in _ADDED_COLUMNS.items():
+            have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col in cols:
+                if col.split()[0] not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
 
 
 def upsert_daily(conn, rows: list[dict]) -> int:
@@ -170,12 +187,16 @@ def upsert_mstr_nav(conn, rows: list[dict]) -> int:
     conn.executemany(
         """
         INSERT INTO mstr_nav (date, price, market_cap, btc_nav, btc_holdings, mnav_ev, mnav,
+                              sats_per_share, usd_reserve, ann_dividends, usd_duration_yrs,
                               source, updated_at)
         VALUES (:date, :price, :market_cap, :btc_nav, :btc_holdings, :mnav_ev, :mnav,
+                :sats_per_share, :usd_reserve, :ann_dividends, :usd_duration_yrs,
                 :source, :updated_at)
         ON CONFLICT(date) DO UPDATE SET
             price=excluded.price, market_cap=excluded.market_cap, btc_nav=excluded.btc_nav,
             btc_holdings=excluded.btc_holdings, mnav_ev=excluded.mnav_ev, mnav=excluded.mnav,
+            sats_per_share=excluded.sats_per_share, usd_reserve=excluded.usd_reserve,
+            ann_dividends=excluded.ann_dividends, usd_duration_yrs=excluded.usd_duration_yrs,
             source=excluded.source, updated_at=excluded.updated_at
         """,
         rows,
