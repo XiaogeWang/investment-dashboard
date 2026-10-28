@@ -13,6 +13,7 @@ const dataUrl = {
   panel: () => 'data/panel_month.json',
   beta: () => 'data/beta.json',
   mnav: () => 'data/mnav.json',
+  ledger: () => 'data/mstr_ledger.json',
 };
 
 async function get(url) {

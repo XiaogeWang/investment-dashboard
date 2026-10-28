@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import beta, db, mnav
+from . import beta, db, mnav, strategy
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
 from .analysis import build_panel
@@ -146,6 +146,16 @@ def mstr_mnav():
         data = mnav.build(conn)
     if data is None:
         raise HTTPException(404, "还没有 mNAV 数据，先跑一次 python -m app.ingest")
+    return data
+
+
+@app.get("/api/mstr_ledger")
+def mstr_ledger():
+    """Strategy 的 BTC 买卖账本、持仓成本与可转债，和 data/mstr_ledger.json 同构。"""
+    with db.connect() as conn:
+        data = strategy.build(conn)
+    if data is None:
+        raise HTTPException(404, "缺少 snapshots/strategy.json")
     return data
 
 

@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS mstr_nav (
     usd_reserve      REAL,
     ann_dividends    REAL,
     usd_duration_yrs REAL,
+    debt_pref_pct    REAL,
+    pref_pct         REAL,
     source       TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -97,7 +99,7 @@ def connect():
 # CI 每次都是新库，用不到。
 _ADDED_COLUMNS = {
     "mstr_nav": ["sats_per_share REAL", "usd_reserve REAL", "ann_dividends REAL",
-                 "usd_duration_yrs REAL"],
+                 "usd_duration_yrs REAL", "debt_pref_pct REAL", "pref_pct REAL"],
 }
 
 
@@ -188,15 +190,16 @@ def upsert_mstr_nav(conn, rows: list[dict]) -> int:
         """
         INSERT INTO mstr_nav (date, price, market_cap, btc_nav, btc_holdings, mnav_ev, mnav,
                               sats_per_share, usd_reserve, ann_dividends, usd_duration_yrs,
-                              source, updated_at)
+                              debt_pref_pct, pref_pct, source, updated_at)
         VALUES (:date, :price, :market_cap, :btc_nav, :btc_holdings, :mnav_ev, :mnav,
                 :sats_per_share, :usd_reserve, :ann_dividends, :usd_duration_yrs,
-                :source, :updated_at)
+                :debt_pref_pct, :pref_pct, :source, :updated_at)
         ON CONFLICT(date) DO UPDATE SET
             price=excluded.price, market_cap=excluded.market_cap, btc_nav=excluded.btc_nav,
             btc_holdings=excluded.btc_holdings, mnav_ev=excluded.mnav_ev, mnav=excluded.mnav,
             sats_per_share=excluded.sats_per_share, usd_reserve=excluded.usd_reserve,
             ann_dividends=excluded.ann_dividends, usd_duration_yrs=excluded.usd_duration_yrs,
+            debt_pref_pct=excluded.debt_pref_pct, pref_pct=excluded.pref_pct,
             source=excluded.source, updated_at=excluded.updated_at
         """,
         rows,

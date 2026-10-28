@@ -47,6 +47,31 @@
   .charts2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; }
   .chart.prem, .chart.fly { height: 400px; }
   .chart.hist { height: 420px; }
+  .chart.cost { height: 420px; }
+
+  /* 账本与可转债表格 */
+  .tbl-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin-top: 12px; }
+  .tbl { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .tbl th { color: var(--text-faint); font-weight: 500; font-size: 11px; text-align: right; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .tbl td { text-align: right; padding: 8px 12px; border-top: 1px solid var(--border); white-space: nowrap; color: var(--text-dim); }
+  .tbl tbody tr:first-child td { border-top: 0; }
+  .tbl th:first-child, .tbl td:first-child { text-align: left; }
+  .tbl td b { color: var(--text); font-weight: 600; }
+  .tbl .buy { color: var(--up); }
+  .tbl .sell { color: var(--down); }
+  .tbl a { color: var(--accent); text-decoration: none; }
+  .tbl small { display: block; color: var(--text-faint); font-size: 10.5px; margin-top: 1px; }
+  .tbl .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 5px; color: var(--tone);
+    border: 1px solid color-mix(in srgb, var(--tone) 45%, transparent); }
+  .tbl tr.next td { background: color-mix(in srgb, var(--down) 7%, transparent); }
+  .tbl-foot { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-top: 1px solid var(--border);
+    color: var(--text-faint); font-size: 11.5px; }
+  .tbl-foot button { border: 1px solid var(--border); background: var(--panel-2); color: var(--text-dim); cursor: pointer;
+    padding: 4px 10px; border-radius: 7px; font-size: 12px; font-family: inherit; }
+  .tbl-foot button:hover { color: var(--text); }
+  .summary { color: var(--text-dim); line-height: 1.7; margin: 10px 2px 0; }
+  .summary b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .summary .warnline { color: #d8a657; }
   .insight { margin-top: 12px; }
   .insight h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
   .insight h3 span { color: var(--text-faint); font-weight: 400; font-size: 12px; }
@@ -96,7 +121,7 @@
   }
   @media (max-width: 640px) {
     .wrap { padding: 16px 16px 28px; }
-    .chart.prem, .chart.fly, .chart.hist { height: 320px; }
+    .chart.prem, .chart.fly, .chart.hist, .chart.cost { height: 320px; }
     .checklist li { flex-wrap: wrap; gap: 6px 10px; }
     .checklist li .txt { flex-basis: 100%; }
     .slider { grid-template-columns: 92px minmax(0, 1fr) 56px; }
@@ -156,6 +181,29 @@
     <div class="chart-panel"><div id="chartFly" class="chart fly"></div></div>
   </div>
 
+  <section id="ledgerBlock">
+    <h2 class="block-title">持仓、成本与买卖<span>Strategy 每一笔 BTC 买卖，平均成本和斩杀线</span></h2>
+    <div class="toolbar">
+      <label class="toggle"><input type="checkbox" id="costLog"> 对数坐标</label>
+      <div class="spacer"></div>
+      <div class="seg" id="costRangeSeg">
+        <button data-range="all">全部</button>
+        <button data-range="36">3 年</button>
+        <button data-range="12">1 年</button>
+      </div>
+    </div>
+    <div class="chart-panel"><div id="chartCost" class="chart cost"></div></div>
+    <p class="summary" id="ledgerSummary"></p>
+    <div class="tbl-wrap">
+      <table class="tbl" id="ledgerTable"></table>
+      <div class="tbl-foot"><button id="ledgerMore"></button><span id="ledgerNote"></span></div>
+    </div>
+
+    <h2 class="block-title">可转债回售时间表<span>回售日起持有人可要求按面值现金赎回；股价高于转股价时一般会选择转股</span></h2>
+    <p class="summary" id="convertSummary"></p>
+    <div class="tbl-wrap"><table class="tbl" id="convertTable"></table></div>
+  </section>
+
   <h2 class="block-title">情景压力测试<span>BTC 涨跌 × 溢价变化，MSTR 会怎样</span></h2>
   <div class="sim">
     <div class="sim-panel">
@@ -181,7 +229,7 @@
     </div>
   </div>
 
-  <h2 class="block-title">决策检查清单<span>前六项按最新数据自动判断，最后两项数据覆盖不到，需要自己核对</span></h2>
+  <h2 class="block-title">决策检查清单<span>前七项按最新数据自动判断，最后一项需要你自己判断</span></h2>
   <section class="checklist"><ul id="checklist"></ul></section>
 
   <div class="foot">
@@ -194,6 +242,12 @@
     <br><b>杠杆</b> = BTC 净值 / (BTC 净值 − 净负债)，即 BTC 涨跌 1% 时归普通股的净资产涨跌多少，和 Strategy 官网的 amplification 口径一致。
     <br><b>档位</b>：EV 口径 &lt; 1.0× 飞轮反转（增发普通股会稀释每股 BTC），1.0–1.3× 低溢价，1.3–2.0× 溢价，&gt; 2.0× 高溢价。
     EV 口径只有不到两年的历史，档位是经验划分，不是统计意义上的最优买卖点。
+    <br><b>斩杀线</b> = (债务 + 优先股面值 − 现金) / 持币量，即 BTC 跌到这个价时持币价值刚好等于排在普通股前面的负债。
+    债务和优先股面值由时序接口里的占比乘回 BTC 净值得到；现金储备 2025-12 起才有，之前用 EV 口径反推的净负债。
+    跌破斩杀线不等于马上破产：可转债无抵押、没有强平条款，真正的现金压力来自回售日和股息。
+    <br><b>账本与可转债</b>：来自 Strategy 官网 /ledger 和 /debt 页面的快照（<code>snapshots/strategy.json</code>），官网没有公开接口，
+    需要在浏览器里运行 <code>scripts/strategy_snapshot.js</code> 刷新。快照之后的买卖按每日持币量变化自动补上，成交价按当天币价估算，标记为「估算」。
+    平均成本：2025-06-30 起用官网累计成本，之前按每笔金额累加。官网卖出时扣的是高成本批次而不是平均成本，所以卖出后平均成本会略降。
     <br><b>情景测算</b>：假设净负债按每股不变（不新增债务和优先股），每股 BTC 变化单独设定；不含期权、税费和交易成本。
     <br><b>每股 BTC</b>、现金储备、年化股息与利息、现金覆盖年限均为 Strategy 官网口径（每股 BTC 按稀释后股数），2025 年起陆续公布。
     <br>数据来源：<code>api.strategy.com/btc/timeSeries</code>（非文档化接口）。本页由规则自动生成，用于整理判断思路，不构成投资建议。
@@ -226,11 +280,16 @@ const LINES = [
   { key: 'mnav_mc', label: '市值口径', color: '#3987e5' },
 ];
 
+let LG = null;  // 账本与可转债，缺失时相关板块隐藏
+const usd0 = (v) => v == null ? '—' : '$' + Math.round(v).toLocaleString();
+const lastOf = (key) => { const i = lastIdx(key); return i < 0 ? null : M[key][i]; };
 const x2 = (v) => v == null ? '—' : v.toFixed(2) + '×';
 // 情景测算里 E0 是由取整后的 EV 反推的，「不变」的情景会算出 −1e-16 这种值，按 0 处理
 const zero = (v) => Math.abs(v) < 5e-4 ? 0 : v;
 const pct = (v, d = 1) => v == null ? '—' : (zero(v) >= 0 ? '+' : '−') + Math.abs(zero(v) * 100).toFixed(d) + '%';
-const usdM = (m) => m == null ? '—' : fmtUSD(m * 1e6);
+// 金额单位是百万美元：1 亿以上按「亿」两位小数，以下按「万」取整（$2,200 万，而不是 $2200.00 万）
+const usdM = (m) => m == null ? '—' : Math.abs(m) >= 100
+  ? '$' + (m / 100).toFixed(2) + ' 亿' : '$' + Math.round(m * 100).toLocaleString() + ' 万';
 const toneCls = (t) => `t-${t}`;
 
 /** 某列最近一个非空值的下标。 */
@@ -305,11 +364,22 @@ function renderVerdict() {
        EV 口径处于 2024-12-31 以来的 <b>${Math.round(ev.pct * 100)}% 分位</b>（区间 ${x2(ev.lo[1])} ~ ${x2(ev.hi[1])}）。</p>
     <p>仓位按坏情况定：如果 BTC 跌 50%、EV 口径同时降到 1.0×，MSTR 约 <b>${pct(crash.ret, 0)}</b>（直接持有 BTC 是 −50%）。
        这个跌幅你能拿得住，仓位才合适。</p>
+    ${costLine()}
     <div class="ladder">${labels}<div class="bar">${segs}</div>${ticks}
       <span class="mark range" style="left:${ladderPct(ev.lo[1])}%" title="历史最低 ${ev.lo[0]}"></span>
       <span class="mark range" style="left:${ladderPct(ev.hi[1])}%" title="历史最高 ${ev.hi[0]}"></span>
       <span class="mark" style="left:${ladderPct(ev.latest)}%"><i>当前 ${ev.latest.toFixed(2)}</i></span>
     </div>`;
+}
+
+/** 结论条里的成本与斩杀线一句话。 */
+function costLine() {
+  const btc = lastOf('btc_price'), kill = lastOf('kill_price');
+  const avg = LG ? LG.transactions[LG.transactions.length - 1].avg_cost : null;
+  const parts = [];
+  if (avg) parts.push(`BTC 现价 <b>${usd0(btc)}</b>，${btc >= avg ? '比' : '低于'} Strategy 平均持仓成本 ${usd0(avg)} ${btc >= avg ? '高' : ''} <b>${pct(Math.abs(btc / avg - 1), 0).slice(1)}</b>`);
+  if (kill) parts.push(`BTC 要跌到 <b>${usd0(kill)}</b>（<b>${pct(kill / btc - 1, 0)}</b>）负债才会吃掉全部持币`);
+  return parts.length ? `<p>${parts.join('；')}。公司难死，但股东的损失可以很大：真正的现金压力来自可转债回售和股息，见下方回售时间表。</p>` : '';
 }
 
 /* ---------------- 关键读数 ---------------- */
@@ -335,6 +405,14 @@ function renderCards() {
     { label: '现金覆盖股息和利息', value: dur == null ? '—' : dur.toFixed(1) + ' 年', tone: dur == null ? 'mid' : dur >= 2 ? 'ok' : dur >= 1 ? 'warn' : 'risk',
       meta: [`现金 <b>${usdM(M.usd_reserve[iD])}</b>`, `每年支出 <b>${usdM(M.ann_dividends[iD])}</b>`] },
   ];
+  const btc = lastOf('btc_price'), kill = lastOf('kill_price');
+  if (kill) cards.push({ label: '斩杀线', value: usd0(kill), tone: kill / btc > 0.5 ? 'risk' : kill / btc > 0.3 ? 'warn' : 'ok',
+    meta: [`BTC 还要跌 <b>${pct(kill / btc - 1, 0)}</b>`, '负债吃掉全部持币'] });
+  if (LG) {
+    const t = LG.transactions[LG.transactions.length - 1];
+    cards.push({ label: '平均持仓成本', value: usd0(t.avg_cost), tone: btc >= t.avg_cost ? 'ok' : 'warn',
+      meta: [`BTC 现价 ${btc >= t.avg_cost ? '高' : '低'} <b>${pct(Math.abs(btc / t.avg_cost - 1), 0).slice(1)}</b>`, `总成本 <b>${usdM(t.total_cost)}</b>`] });
+  }
   const box = document.getElementById('cards');
   box.innerHTML = cards.map(c => `
     <div class="card ${toneCls(c.tone)}">
@@ -556,8 +634,8 @@ function checklist() {
            (tone === 'warn' ? '溢价在收缩，等企稳再加仓比摊低成本更稳妥。' : tone === 'ok' ? '溢价在修复，但不要据此追高到高溢价区。' : '近期没有明显方向。') });
   }
 
-  out.push({ k: '债务条款', tone: null, tag: '人工', manual: true,
-    txt: '可转债的到期和回售时间、优先股条款变化，接口里没有。需要看公司 8-K / 10-Q，确认未来一两年有没有集中兑付压力。' });
+  const put = putPressure();
+  if (put) out.push(put);
   out.push({ k: 'BTC 方向', tone: null, tag: '人工', manual: true,
     txt: '这个页面只回答“用不用 MSTR、付了多少溢价”，不判断 BTC 涨跌。如果不看好 BTC，溢价再低也没有意义。' });
   return out;
@@ -811,6 +889,174 @@ function bootHist() {
   updateHist();
 }
 
+/* ---------------- 持仓、成本与买卖 ---------------- */
+const cstate = { range: 'all', log: false };
+const LEDGER_SHOW = 12;
+let ledgerAll = false;
+
+function costRangeStart() {
+  if (cstate.range === 'all') return M.dates[0];
+  const d = new Date(M.as_of);
+  d.setMonth(d.getMonth() - Number(cstate.range));
+  return d.toISOString().slice(0, 10);
+}
+
+function renderCostChart() {
+  const from = costRangeStart();
+  const tx = LG.transactions.filter(t => t.date >= from);
+  // 平均成本是阶梯：每笔交易之后才变，延伸到最新一天
+  const avg = LG.transactions.map(t => [t.date, t.avg_cost]);
+  avg.push([M.as_of, avg[avg.length - 1][1]]);
+  initChart('chartCost').setOption({
+    ...baseOption(),
+    legend: { ...baseOption().legend, top: 8, left: 12 },
+    grid: { left: 64, right: 64, top: 40, bottom: 64 },
+    xAxis: { type: 'time', min: from, max: M.as_of, axisLine: { lineStyle: { color: AXIS } },
+      axisTick: { show: false }, axisLabel: { color: LABEL, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
+    yAxis: [
+      { type: cstate.log ? 'log' : 'value', scale: true, logBase: 10,
+        axisLabel: { color: LABEL, fontSize: 11, formatter: v => '$' + (v >= 1000 ? Math.round(v / 1000) + 'k' : v) },
+        splitLine: { lineStyle: { color: GRID_LINE } } },
+      { type: 'value', axisLabel: { color: FAINT, fontSize: 10, formatter: v => (v / 1000).toFixed(0) + 'k' },
+        splitLine: { show: false }, name: '买卖 BTC', nameTextStyle: { color: FAINT, fontSize: 10 } },
+    ],
+    dataZoom: zoomCfg(0, [0]),
+    tooltip: { ...tooltipBase, axisPointer: { type: 'line', lineStyle: { color: FAINT } },
+      formatter: (ps) => {
+        if (!ps.length) return '';
+        const d = echarts.time.format(ps[0].value[0], '{yyyy}-{MM}-{dd}', false);
+        return `<div style="font-weight:600;margin-bottom:6px">${d}</div>` + ps.map(p => {
+          const v = p.value[1];
+          const txt = p.seriesName.startsWith('买卖') ? `${v > 0 ? '买入' : '卖出'} ${Math.abs(v).toLocaleString()} BTC` : usd0(v);
+          return `<div>${p.marker}${p.seriesName}　<b>${txt}</b></div>`;
+        }).join('');
+      } },
+    series: [
+      { name: 'BTC 价格', type: 'line', showSymbol: false, sampling: 'lttb', data: pairs('btc_price', from),
+        lineStyle: { width: 1.4, color: '#e5c07b' }, itemStyle: { color: '#e5c07b' } },
+      { name: '平均持仓成本', type: 'line', step: 'end', showSymbol: false, data: avg.filter(p => p[0] >= from),
+        lineStyle: { width: 2, color: ACCENT }, itemStyle: { color: ACCENT } },
+      { name: '斩杀线', type: 'line', showSymbol: false, data: pairs('kill_price', from),
+        lineStyle: { width: 1.4, color: DOWN, type: 'dashed' }, itemStyle: { color: DOWN } },
+      { name: '买卖数量', type: 'bar', yAxisIndex: 1, barMaxWidth: 6,
+        data: tx.map(t => ({ value: [t.date, t.btc], itemStyle: { color: t.btc > 0 ? 'rgba(38,166,154,.55)' : 'rgba(239,83,80,.8)' } })) },
+    ],
+  }, { notMerge: true });
+}
+
+function renderLedger() {
+  const T = LG.transactions;
+  const year = M.as_of.slice(0, 4);
+  const ytd = T.filter(t => t.date.startsWith(year));
+  const bought = ytd.filter(t => t.btc > 0), sold = ytd.filter(t => t.btc < 0);
+  const sum = (a, f) => a.reduce((s, t) => s + f(t), 0);
+  const realized = sum(sold, t => t.realized || 0);
+  const est = T.filter(t => t.estimated);
+  document.getElementById('ledgerSummary').innerHTML =
+    `${year} 年至今买入 <b>${sum(bought, t => t.btc).toLocaleString()} BTC</b>（${usdM(sum(bought, t => t.amount))}，${bought.length} 笔）` +
+    (sold.length ? `，卖出 <b>${(-sum(sold, t => t.btc)).toLocaleString()} BTC</b>（${sold.length} 笔，回收 ${usdM(-sum(sold, t => t.amount))}，` +
+      `实现${realized < 0 ? '亏损' : '盈利'} <b>${usdM(Math.abs(realized))}</b>）` : '，没有卖出') +
+    `。累计 ${T.length} 笔交易，当前持有 <b>${T[T.length - 1].holdings.toLocaleString()} BTC</b>。` +
+    (est.length ? `<br><span class="warnline">最近 ${est.length} 笔是按持币变化估算的（${est[0].date} 起），价格按当天币价估算，刷新快照后会换成官网数据。</span>` : '');
+
+  const rows = (ledgerAll ? T : T.slice(-LEDGER_SHOW)).slice().reverse();
+  document.getElementById('ledgerTable').innerHTML = `<thead><tr>
+      <th>日期</th><th>操作</th><th>数量</th><th>成交均价</th><th>金额</th><th>之后持仓</th><th>平均成本</th><th>公告</th></tr></thead>
+    <tbody>${rows.map(t => `<tr>
+      <td>${t.date}${t.estimated ? '<small>估算</small>' : ''}</td>
+      <td class="${t.btc > 0 ? 'buy' : 'sell'}">${t.btc > 0 ? '买入' : '卖出'}${t.realized != null ? `<small>实现${t.realized < 0 ? '亏损' : '盈利'} ${usdM(Math.abs(t.realized))}</small>` : ''}</td>
+      <td><b>${Math.abs(t.btc).toLocaleString()}</b></td>
+      <td>${usd0(t.price)}</td>
+      <td>${usdM(Math.abs(t.amount))}</td>
+      <td>${t.holdings.toLocaleString()}</td>
+      <td>${usd0(t.avg_cost)}</td>
+      <td>${t.filing ? `<a href="${t.filing}" target="_blank" rel="noopener">8-K</a>` : '—'}</td></tr>`).join('')}</tbody>`;
+  document.getElementById('ledgerMore').textContent = ledgerAll ? `只看最近 ${LEDGER_SHOW} 笔` : `展开全部 ${T.length} 笔`;
+  document.getElementById('ledgerNote').textContent =
+    `官网快照 ${LG.snapshot_date}` + (LG.snapshot_stale ? `，已经 ${LG.snapshot_age_days} 天没刷新，建议运行 scripts/strategy_snapshot.js 更新` : '');
+}
+
+/* ---------------- 可转债回售 ---------------- */
+const daysTo = (d) => Math.round((new Date(d) - new Date(M.as_of)) / 864e5);
+
+/** 回售压力：未来 18 个月进入回售窗口、且股价低于转股价（持有人倾向要现金）的本金。 */
+function putWindow() {
+  const price = lastOf('price');
+  const upcoming = LG.converts.filter(c => daysTo(c.put_date) >= 0);
+  const soon = upcoming.filter(c => daysTo(c.put_date) <= 548);
+  const atRisk = soon.filter(c => price < c.strike);
+  return { price, upcoming, soon, atRisk, next: upcoming[0], amount: atRisk.reduce((s, c) => s + c.notional_musd, 0) };
+}
+
+function renderConverts() {
+  const w = putWindow();
+  const iD = lastIdx('usd_reserve');
+  const cash = M.usd_reserve[iD], div = M.ann_dividends[iD];
+  const need = w.amount + div * 1.5;
+  const n = w.next;
+  document.getElementById('convertSummary').innerHTML =
+    `6 笔可转债本金合计 <b>${usdM(LG.converts_notional)}</b>，全部无抵押、没有强平条款。` +
+    (n ? `下一个回售日是 <b>${n.put_date}</b>（${n.name}，${usdM(n.notional_musd)}，还有 ${daysTo(n.put_date)} 天），` +
+      `转股价 ${usd0(n.strike)}，MSTR 现价 ${usd0(w.price)}，${w.price >= n.strike ? '已经高于转股价，持有人大概率转股' :
+        `还要涨 <b>${pct(n.strike / w.price - 1, 0)}</b> 才到转股价，否则持有人可能要求现金赎回`}。` : '') +
+    (w.soon.length ? `<br>未来 18 个月进入回售窗口、且股价低于转股价的本金 <b>${usdM(w.amount)}</b>，` +
+      `加上 18 个月的股息和利息约 ${usdM(div * 1.5)}，合计 <b>${usdM(need)}</b>；现金储备 <b>${usdM(cash)}</b>，` +
+      (cash >= need ? '够覆盖。' : `<span class="warnline">缺口 ${usdM(need - cash)}，届时要靠增发、发新债或卖币。</span>`) : '') +
+    (LG.converts_mismatch ? `<br><span class="warnline">接口里的债务（${usdM(LG.debt_api)}）和下表本金合计对不上，可能有新发行、赎回或转股，需要刷新快照。</span>` : '');
+
+  document.getElementById('convertTable').innerHTML = `<thead><tr>
+      <th>名称</th><th>本金</th><th>票息</th><th>转股价</th><th>现价 / 转股价</th><th>回售日</th><th>距今</th><th>公司最早可赎回</th><th>到期日</th><th>状态</th></tr></thead>
+    <tbody>${LG.converts.map(c => {
+      const d = daysTo(c.put_date), inMoney = w.price >= c.strike;
+      const tone = inMoney ? 'ok' : d <= 548 ? 'risk' : 'warn';
+      const status = inMoney ? '价内，倾向转股' : d <= 548 ? '价外，回售风险' : '价外';
+      return `<tr class="${c === n ? 'next' : ''}">
+        <td><b>${c.name}</b></td><td>${usdM(c.notional_musd)}</td><td>${c.coupon}%</td><td>${usd0(c.strike)}</td>
+        <td>${Math.round(w.price / c.strike * 100)}%</td><td><b>${c.put_date}</b></td>
+        <td>${d >= 0 ? (d >= 365 ? (d / 365).toFixed(1) + ' 年' : d + ' 天') : '已过'}</td>
+        <td>${c.call_date}</td><td>${c.maturity_date}</td>
+        <td><span class="pill ${toneCls(tone)}">${status}</span></td></tr>`;
+    }).join('')}</tbody>`;
+}
+
+/** 检查清单里的「回售压力」。 */
+function putPressure() {
+  if (!LG) return { k: '回售压力', tone: null, tag: '人工', manual: true,
+    txt: '可转债明细没有加载到，需要看公司 8-K / 10-Q 确认回售和到期时间。' };
+  const w = putWindow();
+  const iD = lastIdx('usd_reserve');
+  const cash = M.usd_reserve[iD], need = w.amount + M.ann_dividends[iD] * 1.5;
+  const tone = !w.atRisk.length ? 'ok' : cash >= need ? 'warn' : 'risk';
+  const n = w.next;
+  return { k: '回售压力', tone, tag: { ok: '无', warn: '可覆盖', risk: '有缺口' }[tone],
+    txt: (n ? `下一个回售日 <b>${n.put_date}</b>（${n.name}，${usdM(n.notional_musd)}，转股价 ${usd0(n.strike)}，现价 ${usd0(w.price)}）。` : '没有待到的回售日。') +
+      (w.atRisk.length ? `未来 18 个月价外待回售 <b>${usdM(w.amount)}</b>，加 18 个月股息利息共 ${usdM(need)}，现金 ${usdM(cash)}，` +
+        (cash >= need ? '目前够覆盖；但现金也在付股息，要盯着储备变化。' : '<b>覆盖不了</b>，到时可能需要卖币或低价融资。') : '未来 18 个月没有价外的回售。') +
+      (LG.converts_mismatch || LG.snapshot_stale ? ' <span style="color:#d8a657">可转债快照可能过期，需要刷新。</span>' : '') };
+}
+
+function bootLedger() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('mstr-cost-view') || 'null');
+    if (saved) Object.assign(cstate, saved);
+  } catch (e) { /* 忽略 */ }
+  const update = () => {
+    document.getElementById('costLog').checked = cstate.log;
+    document.querySelectorAll('#costRangeSeg button').forEach(b => b.classList.toggle('on', b.dataset.range === cstate.range));
+    renderCostChart();
+    try { localStorage.setItem('mstr-cost-view', JSON.stringify(cstate)); } catch (e) { /* 忽略 */ }
+  };
+  document.getElementById('costLog').addEventListener('change', (e) => { cstate.log = e.target.checked; update(); });
+  document.getElementById('costRangeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b) { cstate.range = b.dataset.range; update(); }
+  });
+  document.getElementById('ledgerMore').addEventListener('click', () => { ledgerAll = !ledgerAll; renderLedger(); });
+  update();
+  renderLedger();
+  renderConverts();
+}
+
 /* ---------------- 启动 ---------------- */
 function updateCharts() {
   renderControls();
@@ -838,6 +1084,12 @@ function updateCharts() {
   } catch (e) { /* 忽略 */ }
   state.lines = state.lines.filter(k => LINES.some(l => l.key === k));
   if (!state.lines.length) state.lines = ['mnav_ev'];
+
+  try {
+    LG = await get(dataUrl.ledger());
+  } catch (e) {
+    document.getElementById('ledgerBlock').hidden = true;
+  }
 
   const iE = lastIdx('mnav_ev');
   document.getElementById('stamp').textContent =
@@ -875,6 +1127,7 @@ function updateCharts() {
   });
   updateCharts();
   bootHist();
+  if (LG) bootLedger();
 })();
 </script>
 </body>

@@ -14,6 +14,12 @@
 - 杠杆   = BTC 净值 / (BTC 净值 − 净负债)：BTC 涨跌 1%，归普通股的净资产涨跌多少。
   和接口里的 amplification（2026-06 起才有）口径一致，自己算是为了历史更长
 
+账面口径另算一份：接口给了 (债务 + 优先股) / BTC 净值 和 优先股 / BTC 净值 两个百分比，
+乘回 BTC 净值就是债务、优先股的面值（2026-10 核对过：债务 = 6 笔可转债本金之和，优先股 = 官网 KPI）。
+
+- 斩杀线 = (债务 + 优先股 − 现金) / 持币量：BTC 跌到这个价，持币价值刚好等于排在普通股前面的负债。
+  有现金储备数据（2025-12 起）时用账面口径，之前退回到 EV 反推的净负债
+
 数据来自 Strategy 官网图表页用的公开接口（STRATEGY_TIMESERIES_URL），不是文档化的 API。
 金额单位是「百万美元」，原样保存。
 """
@@ -48,6 +54,8 @@ def fetch() -> list[dict]:
             # 美元现金储备、年化优先股股息 + 利息、现金能覆盖几年股息和利息
             "sats_per_share": r.get("satsPerShare"), "usd_reserve": r.get("usdReserve"),
             "ann_dividends": r.get("annDividends"), "usd_duration_yrs": r.get("usdDurationYrs"),
+            # (债务 + 优先股) / BTC 净值、优先股 / BTC 净值，单位是百分数
+            "debt_pref_pct": r.get("debtPrefByBN"), "pref_pct": r.get("prefBtcNav"),
             "source": "strategy:timeSeries", "updated_at": now,
         })
     if not rows:
@@ -71,11 +79,31 @@ def _derived(r) -> tuple[float | None, float | None, float | None]:
     return liab, r["market_cap"] / net, r["btc_nav"] / net
 
 
+def _book(r) -> tuple[float | None, float | None]:
+    """账面口径的 (债务, 优先股)，百万美元。"""
+    if r["debt_pref_pct"] is None:
+        return None, None
+    both = r["debt_pref_pct"] / 100 * r["btc_nav"]
+    pref = (r["pref_pct"] or 0) / 100 * r["btc_nav"]
+    return both - pref, pref
+
+
+def _kill_price(r, ev_liab) -> float | None:
+    """斩杀线，美元/枚。"""
+    debt, pref = _book(r)
+    if debt is not None and r["usd_reserve"] is not None:
+        liab = debt + pref - r["usd_reserve"]
+    else:
+        liab = ev_liab
+    return None if liab is None else liab * 1e6 / r["btc_holdings"]
+
+
 def build(conn) -> dict | None:
     rows = db.fetch_mstr_nav(conn)
     if not rows:
         return None
     derived = [_derived(r) for r in rows]
+    book = [_book(r) for r in rows]
     return {
         "as_of": rows[-1]["date"],
         "unit": "USD million",
@@ -94,4 +122,8 @@ def build(conn) -> dict | None:
         "usd_reserve": [_r(r["usd_reserve"], 0) for r in rows],
         "ann_dividends": [_r(r["ann_dividends"], 0) for r in rows],
         "usd_duration_yrs": [_r(r["usd_duration_yrs"], 2) for r in rows],
+        "debt": [_r(b[0], 0) for b in book],
+        "pref": [_r(b[1], 0) for b in book],
+        "btc_price": [round(r["btc_nav"] * 1e6 / r["btc_holdings"]) for r in rows],
+        "kill_price": [_r(_kill_price(r, d[0]), 0) for r, d in zip(rows, derived)],
     }

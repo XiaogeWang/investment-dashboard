@@ -11,6 +11,8 @@ DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = Path(os.getenv("DB_PATH") or DATA_DIR / "market.db")
 
 WEB_DIR = BASE_DIR / "web"
+# Strategy 官网账本与可转债快照，提交进仓库（见 app/strategy.py）
+SNAPSHOT_PATH = BASE_DIR / "snapshots" / "strategy.json"
 
 CMC_API_KEY = os.getenv("CMC_API_KEY", "").strip()
 CMC_BASE_URL = "https://pro-api.coinmarketcap.com"

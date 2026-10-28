@@ -11,6 +11,7 @@
     data/macro/{series}_{period}.json            宏观单值序列
     data/beta.json                               加密股相对 BTC 的滚动 Beta
     data/mnav.json                               Strategy (MSTR) 的 mNAV
+    data/mstr_ledger.json                        Strategy 的 BTC 买卖账本、持仓成本与可转债
 
 每天抓取完新数据后跑一遍这个脚本，重新生成的文件连同 web/ 一起提交到仓库，
 GitHub Actions 里就是「抓取 → 导出 → git commit & push」三步。
@@ -21,7 +22,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from . import beta, db, mnav
+from . import beta, db, mnav, strategy
 from .aggregate import (PERIODS, AsOf, aggregate, aggregate_macro, denominator_modes,
                         derive_ratio_rows, period_key, value_modes)
 from .analysis import build_panel
@@ -217,6 +218,15 @@ def export_mnav(conn) -> None:
     _write(OUT_DIR / "mnav.json", data)
 
 
+def export_ledger(conn) -> None:
+    """快照文件缺失时不覆盖，保留上一次的 mstr_ledger.json。"""
+    data = strategy.build(conn)
+    if data is None:
+        print("snapshots/strategy.json 不存在，保留现有的 data/mstr_ledger.json")
+        return
+    _write(OUT_DIR / "mstr_ledger.json", data)
+
+
 def run() -> None:
     with db.connect() as conn:
         export_meta(conn)
@@ -227,6 +237,7 @@ def run() -> None:
         export_panel(conn)
         export_beta(conn)
         export_mnav(conn)
+        export_ledger(conn)
 
 
 if __name__ == "__main__":
